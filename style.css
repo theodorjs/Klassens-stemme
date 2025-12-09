@@ -1,0 +1,125 @@
+:root {
+    --bg-color: #f0f2f5;
+    --text-color: #333;
+    --glass-bg: rgba(255, 255, 255, 0.8);
+    --primary: #4a90e2;
+    --accent: #ff6b6b;
+    --border-radius: 16px;
+    --transition: all 0.3s ease;
+}
+
+body.dark-mode {
+    --bg-color: #1a1a2e;
+    --text-color: #e0e0e0;
+    --glass-bg: rgba(22, 33, 62, 0.85);
+    --primary: #6c5ce7;
+}
+
+body {
+    font-family: 'Segoe UI', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    transition: var(--transition);
+    min-height: 100vh;
+}
+
+/* Bakgrunnsbilde container */
+#app-background {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: -1;
+    background-size: cover;
+    background-position: center;
+    opacity: 0.1; /* Diskret bakgrunn */
+}
+
+/* Layout */
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(10px);
+    border-radius: var(--border-radius);
+    padding: 2rem;
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+/* Navigation */
+nav {
+    display: flex;
+    justify-content: space-between;
+    padding: 1rem 2rem;
+    align-items: center;
+}
+
+/* Admin Dashboard Layout */
+#admin-dashboard {
+    display: flex;
+    gap: 20px;
+    width: 100%;
+}
+
+.sidebar { width: 250px; }
+.main-content { flex: 1; }
+
+/* Skjema elementer */
+input, select {
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    background: rgba(255,255,255,0.5);
+    width: 100%;
+    margin-bottom: 10px;
+    color: var(--text-color);
+}
+
+.option-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+    align-items: center;
+}
+
+/* Knapper */
+button {
+    cursor: pointer;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-weight: bold;
+    transition: var(--transition);
+}
+
+.btn-primary { background: var(--primary); color: white; width: 100%; }
+.btn-primary:hover { transform: translateY(-2px); opacity: 0.9; }
+
+.grid-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.vote-card {
+    background: var(--glass-bg);
+    border: 2px solid var(--primary);
+    border-radius: 12px;
+    padding: 15px;
+    text-align: center;
+    cursor: pointer;
+}
+.vote-card:hover { background: var(--primary); color: white; }
+.vote-card img { max-width: 100%; height: 100px; object-fit: contain; }
+
+/* Helpers */
+.hidden { display: none !important; }
+.input-lg { font-size: 1.5rem; }

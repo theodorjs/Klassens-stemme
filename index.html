@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interaktiv Stemmeportal</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="app-background"></div>
+
+    <nav>
+        <div class="logo">StemmePortal</div>
+        <div class="controls">
+            <button id="theme-toggle" class="icon-btn"><span class="material-icons-round">dark_mode</span></button>
+            <button id="admin-login-btn" class="btn-small">Lærer Login</button>
+        </div>
+    </nav>
+
+    <main class="container">
+        <section id="landing-page" class="active-section">
+            <div class="card glass">
+                <h1>Bli med i avstemning</h1>
+                <input type="text" id="session-code-input" placeholder="Skriv inn kodeord" maxlength="6">
+                <button id="join-btn" class="btn-primary">Bli med</button>
+                <p id="join-error" class="error-msg"></p>
+            </div>
+        </section>
+
+        <section id="admin-dashboard" class="hidden">
+            <div class="sidebar glass">
+                <h3>Mine Undersøkelser</h3>
+                <ul id="history-list"></ul>
+                <button id="create-new-btn" class="btn-secondary">+ Ny Undersøkelse</button>
+                <div class="bg-upload">
+                    <label>Endre Bakgrunn:</label>
+                    <input type="file" id="bg-upload-input" accept="image/*">
+                </div>
+            </div>
+            
+            <div class="main-content glass">
+                <div id="creation-view">
+                    <h2>Opprett Spørsmål</h2>
+                    <div class="style-controls">
+                        <label>Graf Type:
+                            <select id="chart-type">
+                                <option value="bar">Søylediagram</option>
+                                <option value="pie">Sektordiagram</option>
+                                <option value="doughnut">Smultring</option>
+                            </select>
+                        </label>
+                        <label>Maks stemmer: <input type="number" id="max-votes" value="1" min="1"></label>
+                    </div>
+
+                    <input type="text" id="question-text" placeholder="Hva er spørsmålet?" class="input-lg">
+                    
+                    <div id="options-container">
+                        </div>
+                    <button id="add-option-btn" class="btn-text">+ Legg til alternativ</button>
+                    
+                    <hr>
+                    <button id="launch-poll-btn" class="btn-primary">Start Avstemning</button>
+                </div>
+
+                <div id="live-results-view" class="hidden">
+                    <div class="header-row">
+                        <h2>Resultater (Live)</h2>
+                        <div class="session-info">
+                            <span>Kode: <strong id="display-code">---</strong></span>
+                            <div id="qrcode"></div>
+                        </div>
+                    </div>
+                    
+                    <canvas id="results-chart"></canvas>
+                    
+                    <div class="admin-actions">
+                        <button id="next-round-btn" class="btn-secondary">Neste Runde (Turnering)</button>
+                        <button id="stop-poll-btn" class="btn-danger">Avslutt</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="student-view" class="hidden">
+            <div class="card glass">
+                <h2 id="student-question">Venter på spørsmål...</h2>
+                <div id="student-options" class="grid-options">
+                    </div>
+                <p id="vote-status"></p>
+            </div>
+        </section>
+
+        <div id="login-modal" class="modal hidden">
+            <div class="modal-content glass">
+                <span class="close">&times;</span>
+                <h2>Logg inn (Lærer)</h2>
+                <input type="email" id="email" placeholder="E-post">
+                <input type="password" id="password" placeholder="Passord">
+                <button id="perform-login" class="btn-primary">Logg inn</button>
+            </div>
+        </div>
+
+    </main>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>
