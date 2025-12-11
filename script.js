@@ -6,7 +6,7 @@ import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://ww
 
 // --- KONFIGURASJON (ERSTATT MED DIN EGEN FRA FIREBASE CONSOLE) ---
 const firebaseConfig = {
-    apiKey: "AIzaSyDFb5GK8bUZP2ZpMByG9-X1JiL-jNPFrKY",
+    apiKey: "AIzaSyCYx3IV-ZwlhfIT2zKrIUD_K_caJ4UFAeU",
     authDomain: "klassens-stemme.firebaseapp.com",
     projectId: "klassens-stemme",
     storageBucket: "klassens-stemme.firebasestorage.app",
