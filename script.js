@@ -13,7 +13,7 @@ const firebaseConfig = {
     messagingSenderId: "607973299678",
     appId: "1:607973299678:web:250efdd7104d32c050394f",
     measurementId: "G-9H2QNM6SHP"
-  };
+};
 
 // Initialiser Firebase
 const app = initializeApp(firebaseConfig);
@@ -37,11 +37,22 @@ const views = {
 
 // Sjekk login status
 onAuthStateChanged(auth, (user) => {
+    const loginBtn = document.getElementById('admin-login-btn');
+    const moreMenuContainer = document.querySelector('.more-menu-container');
+
     if (user) {
         showView('admin');
         loadHistory();
+        if (loginBtn) loginBtn.classList.add('hidden');
+        if (moreMenuContainer) moreMenuContainer.classList.remove('hidden');
     } else {
         showView('landing');
+        if (loginBtn) loginBtn.classList.remove('hidden');
+        // We might want to keep more menu visible even if not logged in (for theme toggle), 
+        // but maybe hide the background change if strictly admin? 
+        // For now, let's keep it visible but maybe specific items could be hidden if we wanted granularity.
+        // User asked for "more menu" generally.
+        if (moreMenuContainer) moreMenuContainer.classList.remove('hidden');
     }
 });
 
@@ -63,21 +74,57 @@ function showView(viewName) {
 }
 
 // --- TEMA & UI ---
-document.getElementById('theme-toggle').onclick = () => {
-    document.body.classList.toggle('dark-mode');
-};
+// --- TEMA & UI ---
+const moreMenuBtn = document.getElementById('more-menu-btn');
+const moreDropdown = document.getElementById('more-dropdown');
+const themeToggleBtn = document.getElementById('theme-toggle');
+
+if (moreMenuBtn) {
+    moreMenuBtn.onclick = (e) => {
+        e.stopPropagation(); // Prevent closing immediately
+        moreDropdown.classList.toggle('hidden');
+    };
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', (e) => {
+    if (moreDropdown && !moreDropdown.classList.contains('hidden')) {
+        if (!moreDropdown.contains(e.target) && e.target !== moreMenuBtn) {
+            moreDropdown.classList.add('hidden');
+        }
+    }
+});
+
+if (themeToggleBtn) {
+    themeToggleBtn.onclick = () => {
+        document.body.classList.toggle('dark-mode');
+        // Update icon based on mode if desired, or keep generic
+    };
+}
 
 document.getElementById('bg-upload-input').addEventListener('change', async (e) => {
     const file = e.target.files[0];
-    if(!file) return;
-    
-    // Her laster vi opp til Firebase Storage
-    const storageRef = sRef(storage, 'backgrounds/' + Date.now());
-    await uploadBytes(storageRef, file);
-    const url = await getDownloadURL(storageRef);
-    
-    document.getElementById('app-background').style.backgroundImage = `url('${url}')`;
-    // Lagre preferanse i DB hvis ønskelig
+    if (!file) return;
+
+    // Immediate local preview
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        document.getElementById('app-background').style.backgroundImage = `url('${e.target.result}')`;
+    };
+    reader.readAsDataURL(file);
+
+    // Her laster vi opp til Firebase Storage (behold logikk for persistens)
+    try {
+        const storageRef = sRef(storage, 'backgrounds/' + Date.now());
+        await uploadBytes(storageRef, file);
+        const url = await getDownloadURL(storageRef);
+        // Oppdater med faktisk URL etter upload (sikrer at den virker for alle)
+        // document.getElementById('app-background').style.backgroundImage = `url('${url}')`;
+        // Lagre preferanse i DB hvis ønskelig
+    } catch (err) {
+        console.error("Upload failed", err);
+        alert("Kunne ikke lagre bakgrunn, men lokal visning er aktiv.");
+    }
 });
 
 // --- ADMIN FUNKSJONALITET ---
@@ -88,11 +135,41 @@ document.getElementById('add-option-btn').onclick = () => {
     const div = document.createElement('div');
     div.className = 'option-row';
     div.innerHTML = `
+        <div class="opt-preview" style="width: 40px; height: 40px; border-radius: 4px; border: 2px solid #ccc; background-size: cover; background-position: center;"></div>
         <input type="text" placeholder="Svaralternativ" class="opt-text">
-        <input type="color" value="#4a90e2" class="opt-color">
-        <input type="file" accept="image/*" class="opt-img-input">
-        <button onclick="this.parentElement.remove()">X</button>
+        <label title="Velg farge for dette alternativet" class="color-picker-label">
+            <input type="color" value="#4a90e2" class="opt-color">
+            <span class="material-icons-round" style="font-size: 1.2rem; cursor: pointer;">palette</span>
+        </label>
+        <input type="file" accept="image/*" class="opt-img-input" title="Last opp bilde (valgfritt)">
+        <button onclick="this.parentElement.remove()" class="icon-btn-danger" title="Fjern alternativ"><span class="material-icons-round">close</span></button>
     `;
+
+    // Add listeners for preview
+    const colorInput = div.querySelector('.opt-color');
+    const fileInput = div.querySelector('.opt-img-input');
+    const previewDiv = div.querySelector('.opt-preview');
+
+    // Set initial color
+    previewDiv.style.borderColor = colorInput.value;
+
+    colorInput.addEventListener('input', (e) => {
+        previewDiv.style.borderColor = e.target.value;
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                previewDiv.style.backgroundImage = `url('${ev.target.result}')`;
+            };
+            reader.readAsDataURL(file);
+        } else {
+            previewDiv.style.backgroundImage = '';
+        }
+    });
+
     container.appendChild(div);
 };
 
@@ -101,19 +178,19 @@ document.getElementById('launch-poll-btn').onclick = async () => {
     const question = document.getElementById('question-text').value;
     const chartType = document.getElementById('chart-type').value;
     const maxVotes = document.getElementById('max-votes').value;
-    
+
     // Generer kodeord (6 siffer)
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    
+
     // Samle alternativer
     const optionsData = [];
     const optRows = document.querySelectorAll('.option-row');
-    
+
     for (let row of optRows) {
         const text = row.querySelector('.opt-text').value;
         const color = row.querySelector('.opt-color').value;
         const fileInput = row.querySelector('.opt-img-input');
-        
+
         let imgUrl = "";
         if (fileInput.files[0]) {
             const imgRef = sRef(storage, `options/${Date.now()}_${fileInput.files[0].name}`);
@@ -127,7 +204,7 @@ document.getElementById('launch-poll-btn').onclick = async () => {
     // Lagre til database
     const newSessionRef = push(ref(db, 'sessions'));
     currentSessionId = newSessionRef.key;
-    
+
     await set(newSessionRef, {
         code: code,
         question: question,
@@ -142,7 +219,7 @@ document.getElementById('launch-poll-btn').onclick = async () => {
     document.getElementById('creation-view').classList.add('hidden');
     document.getElementById('live-results-view').classList.remove('hidden');
     document.getElementById('display-code').innerText = code;
-    
+
     // Generer QR
     document.getElementById('qrcode').innerHTML = "";
     new QRCode(document.getElementById('qrcode'), {
@@ -157,7 +234,7 @@ document.getElementById('launch-poll-btn').onclick = async () => {
 function listenToResults(sessionId) {
     onValue(ref(db, `sessions/${sessionId}`), (snapshot) => {
         const data = snapshot.val();
-        if(!data) return;
+        if (!data) return;
         renderChart(data);
     });
 }
@@ -248,6 +325,7 @@ function renderStudentView(data) {
     data.options.forEach((opt, index) => {
         const btn = document.createElement('div');
         btn.className = 'vote-card';
+        btn.style.borderColor = opt.color; // Use custom color
         btn.innerHTML = `
             ${opt.imgUrl ? `<img src="${opt.imgUrl}">` : ''}
             <h3>${opt.text}</h3>

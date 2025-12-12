@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="no">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,6 +10,7 @@
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
     <div id="app-background"></div>
@@ -16,8 +18,21 @@
     <nav>
         <div class="logo">StemmePortal</div>
         <div class="controls">
-            <button id="theme-toggle" class="icon-btn"><span class="material-icons-round">dark_mode</span></button>
             <button id="admin-login-btn" class="btn-small">Lærer Login</button>
+            <div class="more-menu-container">
+                <button id="more-menu-btn" class="icon-btn" aria-label="Mer alternativer">
+                    <span class="material-icons-round">more_vert</span>
+                </button>
+                <div id="more-dropdown" class="dropdown-menu hidden">
+                    <button id="theme-toggle" class="menu-item">
+                        <span class="material-icons-round">dark_mode</span> <span class="label">Mørk modus</span>
+                    </button>
+                    <label for="bg-upload-input" class="menu-item cursor-pointer">
+                        <span class="material-icons-round">wallpaper</span> <span class="label">Endre Bakgrunn</span>
+                    </label>
+                    <input type="file" id="bg-upload-input" accept="image/*" class="hidden-input">
+                </div>
+            </div>
         </div>
     </nav>
 
@@ -36,12 +51,11 @@
                 <h3>Mine Undersøkelser</h3>
                 <ul id="history-list"></ul>
                 <button id="create-new-btn" class="btn-secondary">+ Ny Undersøkelse</button>
-                <div class="bg-upload">
-                    <label>Endre Bakgrunn:</label>
-                    <input type="file" id="bg-upload-input" accept="image/*">
+                <div class="bg-upload hidden">
+                    <!-- Moved to More menu -->
                 </div>
             </div>
-            
+
             <div class="main-content glass">
                 <div id="creation-view">
                     <h2>Opprett Spørsmål</h2>
@@ -57,11 +71,11 @@
                     </div>
 
                     <input type="text" id="question-text" placeholder="Hva er spørsmålet?" class="input-lg">
-                    
+
                     <div id="options-container">
-                        </div>
+                    </div>
                     <button id="add-option-btn" class="btn-text">+ Legg til alternativ</button>
-                    
+
                     <hr>
                     <button id="launch-poll-btn" class="btn-primary">Start Avstemning</button>
                 </div>
@@ -74,9 +88,9 @@
                             <div id="qrcode"></div>
                         </div>
                     </div>
-                    
+
                     <canvas id="results-chart"></canvas>
-                    
+
                     <div class="admin-actions">
                         <button id="next-round-btn" class="btn-secondary">Neste Runde (Turnering)</button>
                         <button id="stop-poll-btn" class="btn-danger">Avslutt</button>
@@ -89,7 +103,7 @@
             <div class="card glass">
                 <h2 id="student-question">Venter på spørsmål...</h2>
                 <div id="student-options" class="grid-options">
-                    </div>
+                </div>
                 <p id="vote-status"></p>
             </div>
         </section>
@@ -108,4 +122,5 @@
 
     <script type="module" src="script.js"></script>
 </body>
+
 </html>
