@@ -65,7 +65,25 @@ document.getElementById('perform-login').onclick = () => {
     const pwd = document.getElementById('password').value;
     signInWithEmailAndPassword(auth, email, pwd)
         .then(() => document.getElementById('login-modal').classList.add('hidden'))
-        .catch(err => alert("Feil: " + err.message));
+        .catch(err => {
+            console.error(err);
+            if (err.message.includes("identity-toolkit-api")) {
+                alert("Feil: API-et er ikke aktivert i Firebase Console. Kontakt administrator.");
+            } else {
+                alert("Kunne ikke logge inn: " + err.message);
+            }
+        });
+};
+
+// Close modal logic
+const loginModal = document.getElementById('login-modal');
+const modalCloseBtn = loginModal.querySelector('.close');
+if (modalCloseBtn) {
+    modalCloseBtn.onclick = () => loginModal.classList.add('hidden');
+}
+// Close on outside click
+loginModal.onclick = (e) => {
+    if (e.target === loginModal) loginModal.classList.add('hidden');
 };
 
 function showView(viewName) {
