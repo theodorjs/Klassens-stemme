@@ -245,6 +245,27 @@ button {
     color: white;
 }
 
+.btn-small {
+    background: rgba(255, 255, 255, 0.5);
+    border: 1px solid #ccc;
+    /* Ensure border is visible */
+    color: var(--text-color);
+}
+
+.btn-small:hover {
+    background: rgba(255, 255, 255, 0.8);
+    border-color: #bbb;
+}
+
+body.dark-mode .btn-small {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: var(--text-color);
+}
+
+body.dark-mode .btn-small:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
 
 .btn-primary {
     background: var(--primary);
