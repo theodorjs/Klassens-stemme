@@ -39,12 +39,14 @@ const views = {
 onAuthStateChanged(auth, (user) => {
     const loginBtn = document.getElementById('admin-login-btn');
     const moreMenuContainer = document.querySelector('.more-menu-container');
+    const logoutBtn = document.getElementById('logout-btn');
 
     if (user) {
         showView('admin');
         loadHistory();
         if (loginBtn) loginBtn.classList.add('hidden');
         if (moreMenuContainer) moreMenuContainer.classList.remove('hidden');
+        if (logoutBtn) logoutBtn.classList.remove('hidden');
     } else {
         showView('landing');
         if (loginBtn) loginBtn.classList.remove('hidden');
@@ -52,7 +54,8 @@ onAuthStateChanged(auth, (user) => {
         // but maybe hide the background change if strictly admin? 
         // For now, let's keep it visible but maybe specific items could be hidden if we wanted granularity.
         // User asked for "more menu" generally.
-        if (moreMenuContainer) moreMenuContainer.classList.remove('hidden');
+        if (moreMenuContainer) moreMenuContainer.classList.remove('hidden'); 
+        if (logoutBtn) logoutBtn.classList.add('hidden');
     }
 });
 
@@ -92,6 +95,25 @@ if (modalCloseBtn) {
 loginModal.onclick = (e) => {
     if (e.target === loginModal) loginModal.classList.add('hidden');
 };
+
+// Logout logic
+const logoutBtn = document.getElementById('logout-btn');
+if (logoutBtn) {
+    logoutBtn.onclick = () => {
+        auth.signOut().then(() => {
+            if (moreDropdown) moreDropdown.classList.add('hidden');
+        }).catch(err => alert("Kunne ikke logge ut: " + err.message));
+    };
+}
+
+// TMDB API key storage
+const tmdbKeyInput = document.getElementById('tmdb-key-input');
+if (tmdbKeyInput) {
+    tmdbKeyInput.value = localStorage.getItem('tmdb_api_key') || '';
+    tmdbKeyInput.addEventListener('input', (e) => {
+        localStorage.setItem('tmdb_api_key', e.target.value.trim());
+    });
+}
 
 function showView(viewName) {
     Object.values(views).forEach(el => el.classList.add('hidden'));
@@ -154,29 +176,29 @@ document.getElementById('bg-upload-input').addEventListener('change', async (e) 
 
 // --- ADMIN FUNKSJONALITET ---
 
-// Legg til alternativ i skjema
-document.getElementById('add-option-btn').onclick = () => {
+//// Reusable function to add option row
+function createOptionRow(text = "", color = "#4a90e2", imgUrl = "") {
     const container = document.getElementById('options-container');
     const div = document.createElement('div');
     div.className = 'option-row';
+    if (imgUrl) {
+        div.dataset.tmdbImgUrl = imgUrl;
+    }
     div.innerHTML = `
-        <div class="opt-preview" style="width: 40px; height: 40px; border-radius: 4px; border: 2px solid #ccc; background-size: cover; background-position: center;"></div>
-        <input type="text" placeholder="Svaralternativ" class="opt-text">
+        <div class="opt-preview" style="width: 40px; height: 40px; border-radius: 4px; border: 2px solid ${color}; background-size: cover; background-position: center; ${imgUrl ? `background-image: url('${imgUrl}');` : ''}"></div>
+        <input type="text" placeholder="Svaralternativ" class="opt-text" value="${text}">
         <label title="Velg farge for dette alternativet" class="color-picker-label">
-            <input type="color" value="#4a90e2" class="opt-color">
+            <input type="color" value="${color}" class="opt-color">
             <span class="material-icons-round" style="font-size: 1.2rem; cursor: pointer;">palette</span>
         </label>
         <input type="file" accept="image/*" class="opt-img-input" title="Last opp bilde (valgfritt)">
         <button onclick="this.parentElement.remove()" class="icon-btn-danger" title="Fjern alternativ"><span class="material-icons-round">close</span></button>
     `;
-
+    
     // Add listeners for preview
     const colorInput = div.querySelector('.opt-color');
     const fileInput = div.querySelector('.opt-img-input');
     const previewDiv = div.querySelector('.opt-preview');
-
-    // Set initial color
-    previewDiv.style.borderColor = colorInput.value;
 
     colorInput.addEventListener('input', (e) => {
         previewDiv.style.borderColor = e.target.value;
@@ -185,17 +207,26 @@ document.getElementById('add-option-btn').onclick = () => {
     fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (file) {
+            delete div.dataset.tmdbImgUrl;
             const reader = new FileReader();
             reader.onload = (ev) => {
                 previewDiv.style.backgroundImage = `url('${ev.target.result}')`;
             };
             reader.readAsDataURL(file);
         } else {
-            previewDiv.style.backgroundImage = '';
+            previewDiv.style.backgroundImage = imgUrl ? `url('${imgUrl}')` : '';
+            if (imgUrl) {
+                div.dataset.tmdbImgUrl = imgUrl;
+            }
         }
     });
 
     container.appendChild(div);
+}
+
+// Legg til alternativ i skjema
+document.getElementById('add-option-btn').onclick = () => {
+    createOptionRow();
 };
 
 // Start Avstemning
@@ -216,8 +247,8 @@ document.getElementById('launch-poll-btn').onclick = async () => {
         const color = row.querySelector('.opt-color').value;
         const fileInput = row.querySelector('.opt-img-input');
 
-        let imgUrl = "";
-        if (fileInput.files[0]) {
+        let imgUrl = row.dataset.tmdbImgUrl || "";
+        if (!imgUrl && fileInput && fileInput.files[0]) {
             const imgRef = sRef(storage, `options/${Date.now()}_${fileInput.files[0].name}`);
             await uploadBytes(imgRef, fileInput.files[0]);
             imgUrl = await getDownloadURL(imgRef);
@@ -387,3 +418,263 @@ function loadHistory() {
         // Sorter og vis de siste
     });
 }
+
+// --- FILM-POOL & TMDB INTEGRASJON ---
+
+let moviePool = [];
+try {
+    moviePool = JSON.parse(localStorage.getItem('movie_pool')) || [];
+} catch (e) {
+    moviePool = [];
+}
+
+const PRESET_COLORS = ['#ff6b6b', '#4a90e2', '#2ecc71', '#f1c40f'];
+
+function saveMoviePool() {
+    localStorage.setItem('movie_pool', JSON.stringify(moviePool));
+    renderMoviePool();
+}
+
+function renderMoviePool() {
+    const poolList = document.getElementById('movie-pool-list');
+    const poolCountSpan = document.getElementById('pool-count');
+    const populateBtn = document.getElementById('populate-poll-btn');
+    
+    if (!poolList) return;
+    
+    poolList.innerHTML = '';
+    
+    if (moviePool.length === 0) {
+        poolList.innerHTML = '<div class="empty-pool-message">Ingen filmer lagt til ennå. Søk over for å legge til filmer i listen din.</div>';
+        poolCountSpan.innerText = '0';
+        populateBtn.disabled = true;
+        return;
+    }
+    
+    poolCountSpan.innerText = moviePool.length;
+    
+    moviePool.forEach((movie, index) => {
+        const item = document.createElement('div');
+        item.className = 'pool-item';
+        if (movie.selected) {
+            item.classList.add('selected');
+        }
+        
+        item.innerHTML = `
+            <input type="checkbox" class="pool-item-checkbox" ${movie.selected ? 'checked' : ''} data-index="${index}">
+            ${movie.posterUrl ? `<img src="${movie.posterUrl}" class="pool-item-poster" alt="${movie.title}">` : '<div class="pool-item-poster" style="background:#eee; display:flex; align-items:center; justify-content:center;"><span class="material-icons-round">movie</span></div>'}
+            <span class="pool-item-title">${movie.title}</span>
+            <button class="pool-item-remove" data-index="${index}" title="Fjern film"><span class="material-icons-round">delete</span></button>
+        `;
+        
+        // Toggle selection
+        item.querySelector('.pool-item-checkbox').addEventListener('change', (e) => {
+            moviePool[index].selected = e.target.checked;
+            localStorage.setItem('movie_pool', JSON.stringify(moviePool));
+            
+            // Visual feedback
+            if (e.target.checked) {
+                item.classList.add('selected');
+            } else {
+                item.classList.remove('selected');
+            }
+            
+            updatePopulateButtonState();
+        });
+        
+        // Remove item
+        item.querySelector('.pool-item-remove').addEventListener('click', () => {
+            moviePool.splice(index, 1);
+            saveMoviePool();
+        });
+        
+        poolList.appendChild(item);
+    });
+    
+    updatePopulateButtonState();
+}
+
+function updatePopulateButtonState() {
+    const selectedCount = moviePool.filter(m => m.selected).length;
+    const populateBtn = document.getElementById('populate-poll-btn');
+    if (populateBtn) {
+        populateBtn.disabled = selectedCount !== 4;
+        if (selectedCount === 4) {
+            populateBtn.title = "Klikk for å fylle avstemningen med de 4 valgte filmene";
+        } else {
+            populateBtn.title = "Du må velge nøyaktig 4 filmer i poolen for å fylle avstemningen";
+        }
+    }
+}
+
+// Clear pool
+const clearPoolBtn = document.getElementById('clear-pool-btn');
+if (clearPoolBtn) {
+    clearPoolBtn.onclick = () => {
+        if (confirm("Er du sikker på at du vil tømme hele film-poolen?")) {
+            moviePool = [];
+            saveMoviePool();
+        }
+    };
+}
+
+// Search TMDB
+const searchInput = document.getElementById('tmdb-search-input');
+const searchBtn = document.getElementById('tmdb-search-btn');
+const searchResults = document.getElementById('tmdb-search-results');
+
+if (searchBtn && searchInput) {
+    const performSearch = async () => {
+        const query = searchInput.value.trim();
+        if (!query) return;
+        
+        const apiKey = localStorage.getItem('tmdb_api_key');
+        if (!apiKey) {
+            alert("Vennligst legg inn en TMDB API-nøkkel (v3) i 'Mer'-menyen oppe til høyre først. Du kan opprette en gratis profil på themoviedb.org og hente nøkkelen der.");
+            return;
+        }
+        
+        searchBtn.disabled = true;
+        searchBtn.innerHTML = '<span class="material-icons-round rotate" style="animation: spin 1s linear infinite;">sync</span>';
+        
+        try {
+            const url = `https://api.themoviedb.org/3/search/movie?api_key=${apiKey}&query=${encodeURIComponent(query)}&language=no-NO`;
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error("Klarte ikke å hente resultater fra TMDB. Sjekk at API-nøkkelen er gyldig.");
+            }
+            const data = await response.json();
+            
+            renderSearchResults(data.results || []);
+        } catch (err) {
+            alert(err.message);
+            searchResults.classList.add('hidden');
+        } finally {
+            searchBtn.disabled = false;
+            searchBtn.innerHTML = '<span class="material-icons-round">search</span>';
+        }
+    };
+    
+    searchBtn.onclick = performSearch;
+    searchInput.onkeypress = (e) => {
+        if (e.key === 'Enter') {
+            performSearch();
+        }
+    };
+}
+
+// Add CSS spin animation helper if not present
+const styleNode = document.createElement('style');
+styleNode.innerHTML = `
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+`;
+document.head.appendChild(styleNode);
+
+function renderSearchResults(results) {
+    if (!searchResults) return;
+    
+    searchResults.innerHTML = '';
+    searchResults.classList.remove('hidden');
+    
+    if (results.length === 0) {
+        searchResults.innerHTML = '<div style="padding: 15px; font-size: 0.9rem; opacity: 0.7; text-align: center;">Ingen filmer funnet.</div>';
+        return;
+    }
+    
+    // Take top 5 results
+    results.slice(0, 5).forEach(movie => {
+        const item = document.createElement('div');
+        item.className = 'search-result-item';
+        
+        const posterUrl = movie.poster_path ? `https://image.tmdb.org/t/p/w92${movie.poster_path}` : '';
+        const fullPosterUrl = movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : '';
+        const year = movie.release_date ? movie.release_date.substring(0, 4) : 'Ukjent år';
+        
+        item.innerHTML = `
+            ${posterUrl ? `<img src="${posterUrl}" alt="${movie.title}">` : '<div style="width:35px; height:50px; background:#ddd; display:flex; align-items:center; justify-content:center; border-radius:4px;"><span class="material-icons-round" style="font-size:1.2rem;">movie</span></div>'}
+            <div class="search-result-info">
+                <span class="search-result-title">${movie.title}</span>
+                <span class="search-result-year">${year}</span>
+            </div>
+            <span class="material-icons-round" style="color: var(--primary);">add_circle</span>
+        `;
+        
+        item.onclick = () => {
+            // Check if already in pool
+            if (moviePool.some(m => m.id === movie.id)) {
+                alert("Filmen er allerede lagt til i poolen din.");
+                return;
+            }
+            
+            moviePool.push({
+                id: movie.id,
+                title: movie.title,
+                posterUrl: fullPosterUrl,
+                selected: false
+            });
+            
+            saveMoviePool();
+            searchInput.value = '';
+            searchResults.classList.add('hidden');
+        };
+        
+        searchResults.appendChild(item);
+    });
+}
+
+// Close search results when clicking outside
+document.addEventListener('click', (e) => {
+    if (searchResults && !searchResults.classList.contains('hidden')) {
+        if (!searchResults.contains(e.target) && e.target !== searchInput && e.target !== searchBtn) {
+            searchResults.classList.add('hidden');
+        }
+    }
+});
+
+// Populate poll options from Movie Pool
+const populateBtn = document.getElementById('populate-poll-btn');
+if (populateBtn) {
+    populateBtn.onclick = () => {
+        const selectedMovies = moviePool.filter(m => m.selected);
+        if (selectedMovies.length !== 4) {
+            alert("Du må velge nøyaktig 4 filmer fra poolen.");
+            return;
+        }
+        
+        const container = document.getElementById('options-container');
+        if (!container) return;
+        
+        // Ask for confirmation if there are already options in the form
+        if (container.children.length > 0 && !confirm("Dette vil erstatte alle gjeldende alternativer i skjemaet. Fortsette?")) {
+            return;
+        }
+        
+        // Set standard film-question if empty
+        const questionInput = document.getElementById('question-text');
+        if (questionInput && !questionInput.value.trim()) {
+            questionInput.value = "Hvilken film skal vi se på siste skoledag?";
+        }
+        
+        container.innerHTML = '';
+        
+        // Add the 4 selected movies
+        selectedMovies.forEach((movie, i) => {
+            createOptionRow(movie.title, PRESET_COLORS[i], movie.posterUrl);
+        });
+        
+        // Uncheck them from pool so they are ready for next rounds, or keep checked?
+        // User says "4 filmer skal møtes i en avstemning av gangen. Vi skal stemme over ganske mange filmer."
+        // Keeping them checked allows easy re-selection, but unchecking encourages moving to next group.
+        // Let's uncheck them so the next 4 can be selected easily!
+        moviePool.forEach(m => {
+            if (m.selected) m.selected = false;
+        });
+        saveMoviePool();
+    };
+}
+
+// Initial render
+renderMoviePool();

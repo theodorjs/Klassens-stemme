@@ -31,6 +31,15 @@
                         <span class="material-icons-round">wallpaper</span> <span class="label">Endre Bakgrunn</span>
                     </label>
                     <input type="file" id="bg-upload-input" accept="image/*" class="hidden-input">
+                    <div class="menu-divider"></div>
+                    <div class="menu-item-group">
+                        <label for="tmdb-key-input"><span class="material-icons-round" style="font-size: 1.2rem; vertical-align: middle;">vpn_key</span> TMDB API-nøkkel:</label>
+                        <input type="password" id="tmdb-key-input" placeholder="Lim inn v3 API Key..." style="height: 36px; font-size: 0.85rem; margin-top: 5px;">
+                    </div>
+                    <div class="menu-divider"></div>
+                    <button id="logout-btn" class="menu-item" style="color: var(--accent);">
+                        <span class="material-icons-round">logout</span> <span class="label">Logg ut</span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -58,26 +67,54 @@
 
             <div class="main-content glass">
                 <div id="creation-view">
-                    <h2>Opprett Spørsmål</h2>
-                    <div class="style-controls">
-                        <label>Graf Type:
-                            <select id="chart-type">
-                                <option value="bar">Søylediagram</option>
-                                <option value="pie">Sektordiagram</option>
-                                <option value="doughnut">Smultring</option>
-                            </select>
-                        </label>
-                        <label>Maks stemmer: <input type="number" id="max-votes" value="1" min="1"></label>
+                    <div class="creation-layout">
+                        <div class="creation-form">
+                            <h2>Opprett Spørsmål</h2>
+                            <div class="style-controls">
+                                <label>Graf Type:
+                                    <select id="chart-type">
+                                        <option value="bar">Søylediagram</option>
+                                        <option value="pie">Sektordiagram</option>
+                                        <option value="doughnut">Smultring</option>
+                                    </select>
+                                </label>
+                                <label>Maks stemmer: <input type="number" id="max-votes" value="1" min="1"></label>
+                            </div>
+
+                            <input type="text" id="question-text" placeholder="Hva er spørsmålet?" class="input-lg">
+                            
+                            <div id="options-container">
+                            </div>
+                            <button id="add-option-btn" class="btn-text">+ Legg til alternativ</button>
+                            
+                            <hr>
+                            <button id="launch-poll-btn" class="btn-primary">Start Avstemning</button>
+                        </div>
+
+                        <div class="movie-pool-section">
+                            <h3>Film-pool (TMDB)</h3>
+                            <p class="pool-description">Søk og legg til filmer i poolen din, og velg nøyaktig 4 kandidater til avstemningen.</p>
+                            
+                            <div class="tmdb-search-box">
+                                <input type="text" id="tmdb-search-input" placeholder="Søk filmtittel...">
+                                <button id="tmdb-search-btn" class="btn-primary"><span class="material-icons-round">search</span></button>
+                            </div>
+                            
+                            <div id="tmdb-search-results" class="search-results-panel hidden"></div>
+
+                            <div class="pool-list-header">
+                                <h4>Dine kandidater (<span id="pool-count">0</span>)</h4>
+                                <button id="clear-pool-btn" class="btn-text-danger" style="padding: 0; font-size: 0.85rem;">Tøm alle</button>
+                            </div>
+                            <div id="movie-pool-list" class="pool-list">
+                                <div class="empty-pool-message">Ingen filmer lagt til ennå. Søk over for å legge til filmer i listen din.</div>
+                            </div>
+
+                            <button id="populate-poll-btn" class="btn-secondary" style="width: 100%; margin-top: 15px;" disabled>
+                                <span class="material-icons-round">auto_awesome</span> Fyll avstemning med valgte (4)
+                            </button>
+                        </div>
                     </div>
-
-                    <input type="text" id="question-text" placeholder="Hva er spørsmålet?" class="input-lg">
-
-                    <div id="options-container">
-                    </div>
-                    <button id="add-option-btn" class="btn-text">+ Legg til alternativ</button>
-
-                    <hr>
-                    <button id="launch-poll-btn" class="btn-primary">Start Avstemning</button>
                 </div>
 
                 <div id="live-results-view" class="hidden">
