@@ -109,13 +109,13 @@
         </section>
 
         <div id="login-modal" class="modal hidden">
-            <div class="modal-content glass">
+            <form id="login-form" class="modal-content glass">
                 <span class="close">&times;</span>
                 <h2>Logg inn (Lærer)</h2>
-                <input type="email" id="email" placeholder="E-post">
-                <input type="password" id="password" placeholder="Passord">
-                <button id="perform-login" class="btn-primary">Logg inn</button>
-            </div>
+                <input type="email" id="email" name="email" placeholder="E-post" autocomplete="username" required>
+                <input type="password" id="current-password" name="password" placeholder="Passord" autocomplete="current-password" required>
+                <button type="submit" id="perform-login" class="btn-primary">Logg inn</button>
+            </form>
         </div>
 
     </main>

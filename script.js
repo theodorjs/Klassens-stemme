@@ -60,20 +60,27 @@ document.getElementById('admin-login-btn').onclick = () => {
     document.getElementById('login-modal').classList.remove('hidden');
 };
 
-document.getElementById('perform-login').onclick = () => {
-    const email = document.getElementById('email').value;
-    const pwd = document.getElementById('password').value;
-    signInWithEmailAndPassword(auth, email, pwd)
-        .then(() => document.getElementById('login-modal').classList.add('hidden'))
-        .catch(err => {
-            console.error(err);
-            if (err.message.includes("identity-toolkit-api")) {
-                alert("Feil: API-et er ikke aktivert i Firebase Console. Kontakt administrator.");
-            } else {
-                alert("Kunne ikke logge inn: " + err.message);
-            }
-        });
-};
+const loginForm = document.getElementById('login-form');
+if (loginForm) {
+    loginForm.onsubmit = (e) => {
+        e.preventDefault();
+        const email = document.getElementById('email').value;
+        const pwd = document.getElementById('current-password').value;
+        signInWithEmailAndPassword(auth, email, pwd)
+            .then(() => {
+                document.getElementById('login-modal').classList.add('hidden');
+                loginForm.reset();
+            })
+            .catch(err => {
+                console.error(err);
+                if (err.message.includes("identity-toolkit-api")) {
+                    alert("Feil: API-et er ikke aktivert i Firebase Console. Kontakt administrator.");
+                } else {
+                    alert("Kunne ikke logge inn: " + err.message);
+                }
+            });
+    };
+}
 
 // Close modal logic
 const loginModal = document.getElementById('login-modal');
