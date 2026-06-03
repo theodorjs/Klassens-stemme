@@ -25,6 +25,12 @@ const storage = getStorage(app);
 let currentSessionId = null;
 let myVoteCount = 0;
 let chartInstance = null;
+let tmdbApiKey = "";
+let moviePool = [];
+
+let dbListenersAttached = false;
+let unsubscribeMoviePool = null;
+let unsubscribeTmdbKey = null;
 
 // --- DOM ELEMENTER ---
 const views = {
@@ -47,6 +53,11 @@ onAuthStateChanged(auth, (user) => {
         if (loginBtn) loginBtn.classList.add('hidden');
         if (moreMenuContainer) moreMenuContainer.classList.remove('hidden');
         if (logoutBtn) logoutBtn.classList.remove('hidden');
+
+        if (!dbListenersAttached) {
+            attachDatabaseListeners();
+            dbListenersAttached = true;
+        }
     } else {
         showView('landing');
         if (loginBtn) loginBtn.classList.remove('hidden');
@@ -56,8 +67,40 @@ onAuthStateChanged(auth, (user) => {
         // User asked for "more menu" generally.
         if (moreMenuContainer) moreMenuContainer.classList.remove('hidden'); 
         if (logoutBtn) logoutBtn.classList.add('hidden');
+
+        detachDatabaseListeners();
+        dbListenersAttached = false;
     }
 });
+
+function attachDatabaseListeners() {
+    const tmdbKeyInput = document.getElementById('tmdb-key-input');
+    
+    // Sync TMDB key
+    unsubscribeTmdbKey = onValue(ref(db, 'settings/tmdb_api_key'), (snapshot) => {
+        tmdbApiKey = snapshot.val() || "";
+        if (tmdbKeyInput && document.activeElement !== tmdbKeyInput) {
+            tmdbKeyInput.value = tmdbApiKey;
+        }
+    });
+
+    // Sync Movie Pool
+    unsubscribeMoviePool = onValue(ref(db, 'movie_pool'), (snapshot) => {
+        moviePool = snapshot.val() || [];
+        renderMoviePool();
+    });
+}
+
+function detachDatabaseListeners() {
+    if (unsubscribeTmdbKey) {
+        unsubscribeTmdbKey();
+        unsubscribeTmdbKey = null;
+    }
+    if (unsubscribeMoviePool) {
+        unsubscribeMoviePool();
+        unsubscribeMoviePool = null;
+    }
+}
 
 document.getElementById('admin-login-btn').onclick = () => {
     document.getElementById('login-modal').classList.remove('hidden');
@@ -106,23 +149,7 @@ if (logoutBtn) {
     };
 }
 
-// TMDB API key storage
-let tmdbApiKey = "";
-const tmdbKeyInput = document.getElementById('tmdb-key-input');
 
-onValue(ref(db, 'settings/tmdb_api_key'), (snapshot) => {
-    tmdbApiKey = snapshot.val() || "";
-    if (tmdbKeyInput && document.activeElement !== tmdbKeyInput) {
-        tmdbKeyInput.value = tmdbApiKey;
-    }
-});
-
-if (tmdbKeyInput) {
-    tmdbKeyInput.addEventListener('input', (e) => {
-        const val = e.target.value.trim();
-        set(ref(db, 'settings/tmdb_api_key'), val);
-    });
-}
 
 function showView(viewName) {
     Object.values(views).forEach(el => el.classList.add('hidden'));
