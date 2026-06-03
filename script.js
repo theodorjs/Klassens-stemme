@@ -107,11 +107,20 @@ if (logoutBtn) {
 }
 
 // TMDB API key storage
+let tmdbApiKey = "";
 const tmdbKeyInput = document.getElementById('tmdb-key-input');
+
+onValue(ref(db, 'settings/tmdb_api_key'), (snapshot) => {
+    tmdbApiKey = snapshot.val() || "";
+    if (tmdbKeyInput && document.activeElement !== tmdbKeyInput) {
+        tmdbKeyInput.value = tmdbApiKey;
+    }
+});
+
 if (tmdbKeyInput) {
-    tmdbKeyInput.value = localStorage.getItem('tmdb_api_key') || '';
     tmdbKeyInput.addEventListener('input', (e) => {
-        localStorage.setItem('tmdb_api_key', e.target.value.trim());
+        const val = e.target.value.trim();
+        set(ref(db, 'settings/tmdb_api_key'), val);
     });
 }
 
@@ -232,6 +241,7 @@ document.getElementById('add-option-btn').onclick = () => {
 // Start Avstemning
 document.getElementById('launch-poll-btn').onclick = async () => {
     try {
+        console.log("Start Avstemning klikket!");
         const question = document.getElementById('question-text').value;
         const chartType = document.getElementById('chart-type').value;
         const maxVotes = document.getElementById('max-votes').value;
@@ -242,11 +252,20 @@ document.getElementById('launch-poll-btn').onclick = async () => {
         // Samle alternativer
         const optionsData = [];
         const optRows = document.querySelectorAll('.option-row');
+        console.log("Antall rader funnet:", optRows.length);
 
         for (let row of optRows) {
-            const text = row.querySelector('.opt-text').value;
-            const color = row.querySelector('.opt-color').value;
+            const textInput = row.querySelector('.opt-text');
+            const colorInput = row.querySelector('.opt-color');
             const fileInput = row.querySelector('.opt-img-input');
+
+            if (!textInput || !colorInput) {
+                console.error("Mangler tekst- eller fargefelt i en av radene!");
+                continue;
+            }
+
+            const text = textInput.value;
+            const color = colorInput.value;
 
             let imgUrl = row.dataset.tmdbImgUrl || "";
             if (!imgUrl && fileInput && fileInput.files[0]) {
@@ -263,7 +282,7 @@ document.getElementById('launch-poll-btn').onclick = async () => {
             return;
         }
 
-        // Lagre til database
+        console.log("Skriver til Firebase Realtime Database...", optionsData);
         const newSessionRef = push(ref(db, 'sessions'));
         currentSessionId = newSessionRef.key;
 
@@ -276,6 +295,7 @@ document.getElementById('launch-poll-btn').onclick = async () => {
             active: true,
             timestamp: Date.now()
         });
+        console.log("Skriving fullført!");
 
         // Oppdater UI
         document.getElementById('creation-view').classList.add('hidden');
@@ -284,8 +304,9 @@ document.getElementById('launch-poll-btn').onclick = async () => {
 
         // Generer QR
         document.getElementById('qrcode').innerHTML = "";
+        const qrUrl = window.location.origin + window.location.pathname + "?code=" + code;
         new QRCode(document.getElementById('qrcode'), {
-            text: window.location.href + "?code=" + code,
+            text: qrUrl,
             width: 128, height: 128
         });
 
@@ -470,30 +491,82 @@ function submitVote(optionIndex, data) {
     document.getElementById('vote-status').innerText = "Stemme registrert!";
 }
 
-// Laste historikk for admin
 function loadHistory() {
     const list = document.getElementById('history-list');
+    if (!list) return;
+    
     onValue(ref(db, 'sessions'), (snapshot) => {
         list.innerHTML = "";
         const data = snapshot.val();
-        // Sorter og vis de siste
+        if (!data) return;
+        
+        // Convert to array and sort by timestamp (newest first)
+        const sessions = Object.keys(data).map(key => ({
+            id: key,
+            ...data[key]
+        })).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+        sessions.forEach(session => {
+            const li = document.createElement('li');
+            li.className = 'history-item';
+            li.innerHTML = `
+                <span class="history-question">${session.question || 'Uten tittel'}</span>
+                <span class="history-status ${session.active ? 'status-active' : 'status-ended'}">
+                    ${session.active ? 'Aktiv' : 'Avsluttet'}
+                </span>
+            `;
+            
+            li.onclick = () => {
+                currentSessionId = session.id;
+                
+                // Transition to results view
+                document.getElementById('creation-view').classList.add('hidden');
+                document.getElementById('live-results-view').classList.remove('hidden');
+                document.getElementById('display-code').innerText = session.code || '---';
+                
+                // Show QR code
+                document.getElementById('qrcode').innerHTML = "";
+                const qrUrl = window.location.origin + window.location.pathname + "?code=" + session.code;
+                new QRCode(document.getElementById('qrcode'), {
+                    text: qrUrl,
+                    width: 128, height: 128
+                });
+                
+                // Show/hide control buttons based on status
+                const nextRoundBtn = document.getElementById('next-round-btn');
+                const stopPollBtn = document.getElementById('stop-poll-btn');
+                if (session.active) {
+                    if (nextRoundBtn) nextRoundBtn.classList.remove('hidden');
+                    if (stopPollBtn) stopPollBtn.classList.remove('hidden');
+                } else {
+                    if (nextRoundBtn) nextRoundBtn.classList.add('hidden');
+                    if (stopPollBtn) stopPollBtn.classList.add('hidden');
+                }
+
+                // Render chart and listen to live changes
+                renderChart(session);
+                listenToResults(session.id);
+            };
+            
+            list.appendChild(li);
+        });
     });
 }
 
 // --- FILM-POOL & TMDB INTEGRASJON ---
 
 let moviePool = [];
-try {
-    moviePool = JSON.parse(localStorage.getItem('movie_pool')) || [];
-} catch (e) {
-    moviePool = [];
-}
+
+// Sync movie pool in real time from database
+onValue(ref(db, 'movie_pool'), (snapshot) => {
+    moviePool = snapshot.val() || [];
+    renderMoviePool();
+});
 
 const PRESET_COLORS = ['#ff6b6b', '#4a90e2', '#2ecc71', '#f1c40f'];
 
 function saveMoviePool() {
-    localStorage.setItem('movie_pool', JSON.stringify(moviePool));
-    renderMoviePool();
+    set(ref(db, 'movie_pool'), moviePool);
 }
 
 function renderMoviePool() {
@@ -507,12 +580,12 @@ function renderMoviePool() {
     
     if (moviePool.length === 0) {
         poolList.innerHTML = '<div class="empty-pool-message">Ingen filmer lagt til ennå. Søk over for å legge til filmer i listen din.</div>';
-        poolCountSpan.innerText = '0';
-        populateBtn.disabled = true;
+        if (poolCountSpan) poolCountSpan.innerText = '0';
+        if (populateBtn) populateBtn.disabled = true;
         return;
     }
     
-    poolCountSpan.innerText = moviePool.length;
+    if (poolCountSpan) poolCountSpan.innerText = moviePool.length;
     
     moviePool.forEach((movie, index) => {
         const item = document.createElement('div');
@@ -531,16 +604,7 @@ function renderMoviePool() {
         // Toggle selection
         item.querySelector('.pool-item-checkbox').addEventListener('change', (e) => {
             moviePool[index].selected = e.target.checked;
-            localStorage.setItem('movie_pool', JSON.stringify(moviePool));
-            
-            // Visual feedback
-            if (e.target.checked) {
-                item.classList.add('selected');
-            } else {
-                item.classList.remove('selected');
-            }
-            
-            updatePopulateButtonState();
+            saveMoviePool(); // Writes back to Firebase, triggering update across clients
         });
         
         // Remove item
@@ -561,7 +625,7 @@ function updatePopulateButtonState() {
     if (populateBtn) {
         populateBtn.disabled = selectedCount !== 4;
         if (selectedCount === 4) {
-            populateBtn.title = "Klikk for å fylle avstemningen med de 4 valgte filmene";
+            populateBtn.title = "Klikk for å fyll avstemningen med de 4 valgte filmene";
         } else {
             populateBtn.title = "Du må velge nøyaktig 4 filmer i poolen for å fylle avstemningen";
         }
@@ -589,7 +653,7 @@ if (searchBtn && searchInput) {
         const query = searchInput.value.trim();
         if (!query) return;
         
-        const apiKey = localStorage.getItem('tmdb_api_key');
+        const apiKey = tmdbApiKey;
         if (!apiKey) {
             alert("Vennligst legg inn en TMDB API-nøkkel (v3) i 'Mer'-menyen oppe til høyre først. Du kan opprette en gratis profil på themoviedb.org og hente nøkkelen der.");
             return;
@@ -726,10 +790,7 @@ if (populateBtn) {
             createOptionRow(movie.title, PRESET_COLORS[i], movie.posterUrl);
         });
         
-        // Uncheck them from pool so they are ready for next rounds, or keep checked?
-        // User says "4 filmer skal møtes i en avstemning av gangen. Vi skal stemme over ganske mange filmer."
-        // Keeping them checked allows easy re-selection, but unchecking encourages moving to next group.
-        // Let's uncheck them so the next 4 can be selected easily!
+        // Uncheck them from pool so they are ready for next rounds
         moviePool.forEach(m => {
             if (m.selected) m.selected = false;
         });
