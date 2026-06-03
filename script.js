@@ -231,61 +231,122 @@ document.getElementById('add-option-btn').onclick = () => {
 
 // Start Avstemning
 document.getElementById('launch-poll-btn').onclick = async () => {
-    const question = document.getElementById('question-text').value;
-    const chartType = document.getElementById('chart-type').value;
-    const maxVotes = document.getElementById('max-votes').value;
+    try {
+        const question = document.getElementById('question-text').value;
+        const chartType = document.getElementById('chart-type').value;
+        const maxVotes = document.getElementById('max-votes').value;
 
-    // Generer kodeord (6 siffer)
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+        // Generer kodeord (6 siffer)
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Samle alternativer
-    const optionsData = [];
-    const optRows = document.querySelectorAll('.option-row');
+        // Samle alternativer
+        const optionsData = [];
+        const optRows = document.querySelectorAll('.option-row');
 
-    for (let row of optRows) {
-        const text = row.querySelector('.opt-text').value;
-        const color = row.querySelector('.opt-color').value;
-        const fileInput = row.querySelector('.opt-img-input');
+        for (let row of optRows) {
+            const text = row.querySelector('.opt-text').value;
+            const color = row.querySelector('.opt-color').value;
+            const fileInput = row.querySelector('.opt-img-input');
 
-        let imgUrl = row.dataset.tmdbImgUrl || "";
-        if (!imgUrl && fileInput && fileInput.files[0]) {
-            const imgRef = sRef(storage, `options/${Date.now()}_${fileInput.files[0].name}`);
-            await uploadBytes(imgRef, fileInput.files[0]);
-            imgUrl = await getDownloadURL(imgRef);
+            let imgUrl = row.dataset.tmdbImgUrl || "";
+            if (!imgUrl && fileInput && fileInput.files[0]) {
+                const imgRef = sRef(storage, `options/${Date.now()}_${fileInput.files[0].name}`);
+                await uploadBytes(imgRef, fileInput.files[0]);
+                imgUrl = await getDownloadURL(imgRef);
+            }
+
+            optionsData.push({ text, color, imgUrl, votes: 0 });
         }
 
-        optionsData.push({ text, color, imgUrl, votes: 0 });
+        if (optionsData.length === 0) {
+            alert("Du må legge til minst ett svaralternativ.");
+            return;
+        }
+
+        // Lagre til database
+        const newSessionRef = push(ref(db, 'sessions'));
+        currentSessionId = newSessionRef.key;
+
+        await set(newSessionRef, {
+            code: code,
+            question: question,
+            options: optionsData,
+            chartType: chartType,
+            maxVotes: maxVotes,
+            active: true,
+            timestamp: Date.now()
+        });
+
+        // Oppdater UI
+        document.getElementById('creation-view').classList.add('hidden');
+        document.getElementById('live-results-view').classList.remove('hidden');
+        document.getElementById('display-code').innerText = code;
+
+        // Generer QR
+        document.getElementById('qrcode').innerHTML = "";
+        new QRCode(document.getElementById('qrcode'), {
+            text: window.location.href + "?code=" + code,
+            width: 128, height: 128
+        });
+
+        // Lytt på resultater
+        listenToResults(currentSessionId);
+    } catch (err) {
+        console.error("Feil ved start av avstemning:", err);
+        alert("Kunne ikke starte avstemning: " + err.message);
     }
-
-    // Lagre til database
-    const newSessionRef = push(ref(db, 'sessions'));
-    currentSessionId = newSessionRef.key;
-
-    await set(newSessionRef, {
-        code: code,
-        question: question,
-        options: optionsData,
-        chartType: chartType,
-        maxVotes: maxVotes,
-        active: true,
-        timestamp: Date.now()
-    });
-
-    // Oppdater UI
-    document.getElementById('creation-view').classList.add('hidden');
-    document.getElementById('live-results-view').classList.remove('hidden');
-    document.getElementById('display-code').innerText = code;
-
-    // Generer QR
-    document.getElementById('qrcode').innerHTML = "";
-    new QRCode(document.getElementById('qrcode'), {
-        text: window.location.href + "?code=" + code,
-        width: 128, height: 128
-    });
-
-    // Lytt på resultater
-    listenToResults(currentSessionId);
 };
+
+// Navigasjon: Ny Undersøkelse
+const createNewBtn = document.getElementById('create-new-btn');
+if (createNewBtn) {
+    createNewBtn.onclick = () => {
+        // Tøm skjemaet
+        const questionInput = document.getElementById('question-text');
+        if (questionInput) questionInput.value = "";
+        
+        const container = document.getElementById('options-container');
+        if (container) container.innerHTML = "";
+        
+        // Vis opprettingsvisning
+        document.getElementById('creation-view').classList.remove('hidden');
+        document.getElementById('live-results-view').classList.add('hidden');
+    };
+}
+
+// Navigasjon: Avslutt Avstemning
+const stopPollBtn = document.getElementById('stop-poll-btn');
+if (stopPollBtn) {
+    stopPollBtn.onclick = async () => {
+        if (currentSessionId) {
+            try {
+                await update(ref(db, `sessions/${currentSessionId}`), { active: false });
+                alert("Avstemningen er avsluttet.");
+            } catch (err) {
+                console.error("Kunne ikke avslutte sesjon:", err);
+                alert("Feil ved avslutting: " + err.message);
+            }
+        }
+        document.getElementById('creation-view').classList.remove('hidden');
+        document.getElementById('live-results-view').classList.add('hidden');
+    };
+}
+
+// Navigasjon: Neste Runde
+const nextRoundBtn = document.getElementById('next-round-btn');
+if (nextRoundBtn) {
+    nextRoundBtn.onclick = async () => {
+        if (currentSessionId) {
+            try {
+                await update(ref(db, `sessions/${currentSessionId}`), { active: false });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+        document.getElementById('creation-view').classList.remove('hidden');
+        document.getElementById('live-results-view').classList.add('hidden');
+    };
+}
 
 function listenToResults(sessionId) {
     onValue(ref(db, `sessions/${sessionId}`), (snapshot) => {
