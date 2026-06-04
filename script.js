@@ -179,10 +179,9 @@ document.getElementById('bg-upload-input').addEventListener('change', async (e) 
 // ============================
 
 function attachDatabaseListeners() {
-    const tmdbInput = document.getElementById('tmdb-key-input');
     unsubscribeTmdbKey = onValue(ref(db, 'settings/tmdb_api_key'), (snap) => {
         tmdbApiKey = snap.val() || "";
-        if (tmdbInput && document.activeElement !== tmdbInput) tmdbInput.value = tmdbApiKey;
+        if (tmdbKeyInput && document.activeElement !== tmdbKeyInput) tmdbKeyInput.value = tmdbApiKey;
     });
     unsubscribeMoviePool = onValue(ref(db, 'movie_pool'), (snap) => {
         moviePool = snap.val() || [];
@@ -197,11 +196,24 @@ function detachDatabaseListeners() {
 }
 
 let tmdbKeyTimer = null;
-document.getElementById('tmdb-key-input').addEventListener('input', (e) => {
+const tmdbKeyInput = document.getElementById('tmdb-key-input');
+
+function saveTmdbKey(value) {
+    const key = value.trim();
+    if (key !== tmdbApiKey) {
+        set(ref(db, 'settings/tmdb_api_key'), key);
+    }
+}
+
+tmdbKeyInput.addEventListener('input', (e) => {
     clearTimeout(tmdbKeyTimer);
-    tmdbKeyTimer = setTimeout(() => {
-        set(ref(db, 'settings/tmdb_api_key'), e.target.value.trim());
-    }, 800);
+    tmdbKeyTimer = setTimeout(() => saveTmdbKey(e.target.value), 800);
+});
+
+// Also save immediately when field loses focus
+tmdbKeyInput.addEventListener('blur', (e) => {
+    clearTimeout(tmdbKeyTimer);
+    saveTmdbKey(e.target.value);
 });
 
 // ============================
