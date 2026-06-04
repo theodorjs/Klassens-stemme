@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="no">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,156 +7,309 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Caveat:wght@400;700&family=Comic+Neue:ital,wght@0,400;0,700;1,400&family=Lato:ital,wght@0,400;0,700;1,400&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Montserrat:ital,wght@0,400;0,700;1,400&family=Oswald:wght@400;600&family=Pacifico&family=Playfair+Display:ital,wght@0,700;1,700&family=Roboto:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
 
-    <div id="app-background"></div>
+<div id="app-background"></div>
 
-    <nav>
-        <div class="logo">StemmePortal</div>
-        <div class="controls">
-            <button id="admin-login-btn" class="btn-small">Lærer Login</button>
-            <div class="more-menu-container">
-                <button id="more-menu-btn" class="icon-btn" aria-label="Mer alternativer">
-                    <span class="material-icons-round">more_vert</span>
+<nav>
+    <div class="logo">Klassens stemme</div>
+    <div class="controls">
+        <button id="admin-login-btn" class="btn-small">Lærer Login</button>
+        <div class="more-menu-container">
+            <button id="more-menu-btn" class="icon-btn" aria-label="Mer alternativer">
+                <span class="material-icons-round">more_vert</span>
+            </button>
+            <div id="more-dropdown" class="dropdown-menu hidden">
+                <button id="theme-toggle" class="menu-item">
+                    <span class="material-icons-round">dark_mode</span>
+                    <span class="label">Mørk modus</span>
                 </button>
-                <div id="more-dropdown" class="dropdown-menu hidden">
-                    <button id="theme-toggle" class="menu-item">
-                        <span class="material-icons-round">dark_mode</span> <span class="label">Mørk modus</span>
-                    </button>
-                    <label for="bg-upload-input" class="menu-item cursor-pointer">
-                        <span class="material-icons-round">wallpaper</span> <span class="label">Endre Bakgrunn</span>
+                <label for="bg-upload-input" class="menu-item cursor-pointer" id="bg-upload-label" style="display:none;">
+                    <span class="material-icons-round">wallpaper</span>
+                    <span class="label">Endre bakgrunn</span>
+                </label>
+                <input type="file" id="bg-upload-input" accept="image/*" class="hidden-input">
+                <div class="menu-divider" id="admin-menu-divider" style="display:none;"></div>
+                <div class="menu-item-group" id="tmdb-key-group" style="display:none;">
+                    <label for="tmdb-key-input">
+                        <span class="material-icons-round" style="font-size:1.1rem;vertical-align:middle;">vpn_key</span>
+                        TMDB API-nøkkel:
                     </label>
-                    <input type="file" id="bg-upload-input" accept="image/*" class="hidden-input">
-                    <div class="menu-divider"></div>
-                    <div class="menu-item-group">
-                        <label for="tmdb-key-input"><span class="material-icons-round" style="font-size: 1.2rem; vertical-align: middle;">vpn_key</span> TMDB API-nøkkel:</label>
-                        <input type="password" id="tmdb-key-input" placeholder="Lim inn v3 API Key..." style="height: 36px; font-size: 0.85rem; margin-top: 5px;">
-                    </div>
-                    <div class="menu-divider"></div>
-                    <button id="logout-btn" class="menu-item" style="color: var(--accent);">
-                        <span class="material-icons-round">logout</span> <span class="label">Logg ut</span>
-                    </button>
+                    <input type="password" id="tmdb-key-input" placeholder="Lim inn v3 API Key...">
                 </div>
+                <div class="menu-divider"></div>
+                <button id="logout-btn" class="menu-item hidden" style="color:var(--accent);">
+                    <span class="material-icons-round">logout</span>
+                    <span class="label">Logg ut</span>
+                </button>
             </div>
         </div>
-    </nav>
+    </div>
+</nav>
 
-    <main class="container">
-        <section id="landing-page" class="active-section">
-            <div class="card glass">
-                <h1>Bli med i avstemning</h1>
-                <input type="text" id="session-code-input" placeholder="Skriv inn kodeord" maxlength="6">
-                <button id="join-btn" class="btn-primary">Bli med</button>
-                <p id="join-error" class="error-msg"></p>
-            </div>
-        </section>
+<main class="container">
 
-        <section id="admin-dashboard" class="hidden">
-            <div class="sidebar glass">
-                <h3>Mine Undersøkelser</h3>
-                <ul id="history-list"></ul>
-                <button id="create-new-btn" class="btn-secondary">+ Ny Undersøkelse</button>
-                <div class="bg-upload hidden">
-                    <!-- Moved to More menu -->
+    <!-- LANDING PAGE -->
+    <section id="landing-page" class="active-section landing-layout">
+        <div class="hero">
+            <h1 class="hero-title">Klassens<br>stemme</h1>
+            <p class="hero-subtitle">La elevene avgjøre</p>
+        </div>
+        <div class="card glass join-card">
+            <h2>Bli med i avstemning</h2>
+            <input type="text" id="session-code-input" placeholder="Skriv inn kodeord" maxlength="8">
+            <button id="join-btn" class="btn-primary">Bli med</button>
+            <p id="join-error" class="error-msg"></p>
+        </div>
+    </section>
+
+    <!-- ADMIN DASHBOARD -->
+    <section id="admin-dashboard" class="hidden">
+        <div class="sidebar glass">
+            <h3>Mine undersøkelser</h3>
+            <ul id="history-list"></ul>
+            <button id="create-new-btn" class="btn-secondary">+ Ny undersøkelse</button>
+            <button id="new-tournament-btn" class="btn-secondary tournament-btn">
+                <span class="material-icons-round">emoji_events</span> Ny turnering
+            </button>
+        </div>
+
+        <div class="main-content glass">
+
+            <!-- CREATION VIEW -->
+            <div id="creation-view">
+                <div class="creation-layout">
+                    <div class="creation-form">
+                        <h2>Opprett spørsmål</h2>
+
+                        <!-- Question style panel -->
+                        <div class="style-panel">
+                            <div class="style-panel-header" onclick="toggleStylePanel('question-style-body')">
+                                <span class="material-icons-round">title</span>
+                                Spørsmål &amp; stil
+                                <span class="material-icons-round toggle-icon" style="margin-left:auto;">expand_more</span>
+                            </div>
+                            <div id="question-style-body" class="style-panel-body">
+                                <div class="style-row">
+                                    <div class="style-group">
+                                        <label>Skrifttype</label>
+                                        <select id="q-font-family" class="style-select">
+                                            <option value="inherit">Standard</option>
+                                            <option value="Roboto">Roboto</option>
+                                            <option value="Montserrat">Montserrat</option>
+                                            <option value="Lato">Lato</option>
+                                            <option value="Oswald">Oswald</option>
+                                            <option value="Playfair Display">Playfair Display</option>
+                                            <option value="Merriweather">Merriweather</option>
+                                            <option value="Caveat">Caveat</option>
+                                            <option value="Pacifico">Pacifico</option>
+                                            <option value="Bebas Neue">Bebas Neue</option>
+                                            <option value="Comic Neue">Comic Neue</option>
+                                        </select>
+                                    </div>
+                                    <div class="style-group style-group-sm">
+                                        <label>Størrelse</label>
+                                        <input type="number" id="q-font-size" value="32" min="12" max="96" class="style-input-sm">
+                                    </div>
+                                    <div class="style-group style-group-xs">
+                                        <label>Farge</label>
+                                        <input type="color" id="q-text-color" value="#333333" class="style-color">
+                                    </div>
+                                    <div class="style-group style-group-sm">
+                                        <label>Format</label>
+                                        <div class="style-toggles">
+                                            <button type="button" class="style-toggle" id="q-bold" onclick="toggleStyleBtn(this)" title="Fet"><strong>B</strong></button>
+                                            <button type="button" class="style-toggle" id="q-italic" onclick="toggleStyleBtn(this)" title="Kursiv"><em>I</em></button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="style-row" style="margin-top:8px;align-items:center;">
+                                    <div class="style-group" style="flex:1;">
+                                        <label>Bilde til spørsmål (valgfritt)</label>
+                                        <input type="file" id="question-img-input" accept="image/*" class="style-file-input">
+                                    </div>
+                                    <div id="question-img-preview" class="img-preview-sm hidden"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <input type="text" id="question-text" placeholder="Hva er spørsmålet?" class="input-lg">
+
+                        <div id="options-container"></div>
+                        <button id="add-option-btn" class="btn-text">+ Legg til alternativ</button>
+
+                        <!-- Options style panel -->
+                        <div class="style-panel">
+                            <div class="style-panel-header" onclick="toggleStylePanel('options-style-body')">
+                                <span class="material-icons-round">format_list_bulleted</span>
+                                Stil for alternativer
+                                <span class="material-icons-round toggle-icon" style="margin-left:auto;">expand_more</span>
+                            </div>
+                            <div id="options-style-body" class="style-panel-body collapsed">
+                                <div class="style-row">
+                                    <div class="style-group">
+                                        <label>Skrifttype</label>
+                                        <select id="opt-font-family" class="style-select">
+                                            <option value="inherit">Standard</option>
+                                            <option value="Roboto">Roboto</option>
+                                            <option value="Montserrat">Montserrat</option>
+                                            <option value="Lato">Lato</option>
+                                            <option value="Oswald">Oswald</option>
+                                            <option value="Playfair Display">Playfair Display</option>
+                                            <option value="Merriweather">Merriweather</option>
+                                            <option value="Caveat">Caveat</option>
+                                            <option value="Pacifico">Pacifico</option>
+                                            <option value="Bebas Neue">Bebas Neue</option>
+                                            <option value="Comic Neue">Comic Neue</option>
+                                        </select>
+                                    </div>
+                                    <div class="style-group style-group-sm">
+                                        <label>Størrelse</label>
+                                        <input type="number" id="opt-font-size" value="18" min="10" max="60" class="style-input-sm">
+                                    </div>
+                                    <div class="style-group style-group-sm">
+                                        <label>Format</label>
+                                        <div class="style-toggles">
+                                            <button type="button" class="style-toggle" id="opt-bold" onclick="toggleStyleBtn(this)" title="Fet"><strong>B</strong></button>
+                                            <button type="button" class="style-toggle" id="opt-italic" onclick="toggleStyleBtn(this)" title="Kursiv"><em>I</em></button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr>
+                        <div class="style-controls">
+                            <label>Graftype:
+                                <select id="chart-type">
+                                    <option value="bar">Søylediagram</option>
+                                    <option value="pie">Sektordiagram</option>
+                                    <option value="doughnut">Smultring</option>
+                                    <option value="polarArea">Polardiagram</option>
+                                </select>
+                            </label>
+                            <label>Maks stemmer:
+                                <input type="number" id="max-votes" value="1" min="1" style="width:70px;">
+                            </label>
+                        </div>
+                        <button id="launch-poll-btn" class="btn-primary">
+                            <span class="material-icons-round">play_arrow</span> Start avstemning
+                        </button>
+                    </div>
+
+                    <!-- MOVIE POOL -->
+                    <div class="movie-pool-section">
+                        <h3>Film-pool (TMDB)</h3>
+                        <p class="pool-description">Søk og legg til filmer. Velg nøyaktig 4 for å fylle en avstemning, eller bruk turneringsmodus for større utvalg.</p>
+                        <div class="tmdb-search-box">
+                            <input type="text" id="tmdb-search-input" placeholder="Søk filmtittel...">
+                            <button id="tmdb-search-btn" class="btn-primary">
+                                <span class="material-icons-round">search</span>
+                            </button>
+                        </div>
+                        <div id="tmdb-search-results" class="search-results-panel hidden"></div>
+                        <div class="pool-list-header">
+                            <h4>Kandidater (<span id="pool-count">0</span>)</h4>
+                            <button id="clear-pool-btn" class="btn-text-danger">Tøm alle</button>
+                        </div>
+                        <div id="movie-pool-list" class="pool-list">
+                            <div class="empty-pool-message">Ingen filmer lagt til ennå.</div>
+                        </div>
+                        <button id="populate-poll-btn" class="btn-secondary" style="width:100%;margin-top:15px;" disabled>
+                            <span class="material-icons-round">auto_awesome</span> Fyll avstemning (4 valgte)
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            <div class="main-content glass">
-                <div id="creation-view">
-                    <div class="creation-layout">
-                        <div class="creation-form">
-                            <h2>Opprett Spørsmål</h2>
-                            <div class="style-controls">
-                                <label>Graf Type:
-                                    <select id="chart-type">
-                                        <option value="bar">Søylediagram</option>
-                                        <option value="pie">Sektordiagram</option>
-                                        <option value="doughnut">Smultring</option>
-                                    </select>
-                                </label>
-                                <label>Maks stemmer: <input type="number" id="max-votes" value="1" min="1"></label>
-                            </div>
+            <!-- LIVE RESULTS VIEW -->
+            <div id="live-results-view" class="hidden">
+                <div class="header-row">
+                    <h2>Live resultater</h2>
+                    <div class="session-info">
+                        <span>Kode: <strong id="display-code">---</strong></span>
+                        <div id="qrcode"></div>
+                    </div>
+                </div>
+                <div id="results-question-display" class="results-question"></div>
+                <canvas id="results-chart"></canvas>
+                <div class="admin-actions">
+                    <button id="next-round-btn" class="btn-secondary hidden">
+                        <span class="material-icons-round">arrow_forward</span> Neste runde
+                    </button>
+                    <button id="stop-poll-btn" class="btn-danger">
+                        <span class="material-icons-round">stop</span> Avslutt
+                    </button>
+                </div>
+            </div>
 
-                            <input type="text" id="question-text" placeholder="Hva er spørsmålet?" class="input-lg">
-                            
-                            <div id="options-container">
-                            </div>
-                            <button id="add-option-btn" class="btn-text">+ Legg til alternativ</button>
-                            
-                            <hr>
-                            <button id="launch-poll-btn" class="btn-primary">Start Avstemning</button>
+            <!-- TOURNAMENT VIEW -->
+            <div id="tournament-view" class="hidden">
+                <h2><span class="material-icons-round">emoji_events</span> Turnering</h2>
+
+                <div id="tournament-setup">
+                    <p style="opacity:0.7;margin-top:0;">Velg filmer fra poolen din til turneringen (minst 4). Systemet lager grupper på 4 og kårer automatisk vinnere.</p>
+                    <div id="tournament-movie-select" class="pool-list" style="max-height:280px;"></div>
+                    <button id="start-tournament-btn" class="btn-primary" style="margin-top:15px;" disabled>
+                        <span class="material-icons-round">play_arrow</span> Start turnering
+                    </button>
+                </div>
+
+                <div id="tournament-bracket" class="hidden">
+                    <div id="bracket-display" class="bracket-display"></div>
+                    <div class="tournament-controls">
+                        <div class="session-info">
+                            <span>Kode: <strong id="tournament-code">---</strong></span>
+                            <div id="tournament-qrcode"></div>
                         </div>
-
-                        <div class="movie-pool-section">
-                            <h3>Film-pool (TMDB)</h3>
-                            <p class="pool-description">Søk og legg til filmer i poolen din, og velg nøyaktig 4 kandidater til avstemningen.</p>
-                            
-                            <div class="tmdb-search-box">
-                                <input type="text" id="tmdb-search-input" placeholder="Søk filmtittel...">
-                                <button id="tmdb-search-btn" class="btn-primary"><span class="material-icons-round">search</span></button>
-                            </div>
-                            
-                            <div id="tmdb-search-results" class="search-results-panel hidden"></div>
-
-                            <div class="pool-list-header">
-                                <h4>Dine kandidater (<span id="pool-count">0</span>)</h4>
-                                <button id="clear-pool-btn" class="btn-text-danger" style="padding: 0; font-size: 0.85rem;">Tøm alle</button>
-                            </div>
-                            <div id="movie-pool-list" class="pool-list">
-                                <div class="empty-pool-message">Ingen filmer lagt til ennå. Søk over for å legge til filmer i listen din.</div>
-                            </div>
-
-                            <button id="populate-poll-btn" class="btn-secondary" style="width: 100%; margin-top: 15px;" disabled>
-                                <span class="material-icons-round">auto_awesome</span> Fyll avstemning med valgte (4)
+                        <div class="tournament-btns">
+                            <button id="launch-group-btn" class="btn-primary">
+                                <span class="material-icons-round">play_arrow</span> Start gruppe
+                            </button>
+                            <button id="advance-tournament-btn" class="btn-secondary hidden">
+                                <span class="material-icons-round">emoji_events</span> Kåre vinner og fortsett
                             </button>
                         </div>
                     </div>
-                </div>
-
-                <div id="live-results-view" class="hidden">
-                    <div class="header-row">
-                        <h2>Resultater (Live)</h2>
-                        <div class="session-info">
-                            <span>Kode: <strong id="display-code">---</strong></span>
-                            <div id="qrcode"></div>
-                        </div>
-                    </div>
-
-                    <canvas id="results-chart"></canvas>
-
-                    <div class="admin-actions">
-                        <button id="next-round-btn" class="btn-secondary">Neste Runde (Turnering)</button>
-                        <button id="stop-poll-btn" class="btn-danger">Avslutt</button>
-                    </div>
+                    <canvas id="tournament-chart" style="max-height:280px;margin-top:20px;"></canvas>
                 </div>
             </div>
-        </section>
 
-        <section id="student-view" class="hidden">
-            <div class="card glass">
-                <h2 id="student-question">Venter på spørsmål...</h2>
-                <div id="student-options" class="grid-options">
-                </div>
-                <p id="vote-status"></p>
-            </div>
-        </section>
-
-        <div id="login-modal" class="modal hidden">
-            <form id="login-form" class="modal-content glass">
-                <span class="close">&times;</span>
-                <h2>Logg inn (Lærer)</h2>
-                <input type="email" id="email" name="email" placeholder="E-post" autocomplete="username" required>
-                <input type="password" id="current-password" name="password" placeholder="Passord" autocomplete="current-password" required>
-                <button type="submit" id="perform-login" class="btn-primary">Logg inn</button>
-            </form>
         </div>
+    </section>
 
-    </main>
+    <!-- STUDENT VIEW -->
+    <section id="student-view" class="hidden">
+        <div class="student-container glass">
+            <div id="student-question-img-wrap" class="hidden">
+                <img id="student-question-img" src="" alt="" class="student-question-img">
+            </div>
+            <h2 id="student-question">Venter på spørsmål...</h2>
+            <div id="student-options" class="grid-options"></div>
+            <p id="vote-status" class="vote-status-msg"></p>
+            <p id="waiting-message" class="waiting-msg hidden">
+                <span class="material-icons-round">hourglass_top</span>
+                Venter på neste runde...
+            </p>
+        </div>
+    </section>
 
-    <script type="module" src="script.js"></script>
+    <!-- LOGIN MODAL -->
+    <div id="login-modal" class="modal hidden">
+        <form id="login-form" class="modal-content glass">
+            <span class="close">&times;</span>
+            <h2>Logg inn (Lærer)</h2>
+            <input type="email" id="email" name="email" placeholder="E-post" autocomplete="username" required>
+            <input type="password" id="current-password" name="password" placeholder="Passord" autocomplete="current-password" required>
+            <button type="submit" class="btn-primary">Logg inn</button>
+        </form>
+    </div>
+
+</main>
+
+<script type="module" src="script.js"></script>
 </body>
-
 </html>
