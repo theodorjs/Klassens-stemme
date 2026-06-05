@@ -647,11 +647,20 @@ select option {
   z-index: 1000;
   animation: scaleIn 0.15s var(--ease-liquid);
   transform-origin: top right;
-  backdrop-filter: var(--blur-lg);
-  -webkit-backdrop-filter: var(--blur-lg);
-  background: var(--glass-white);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--shadow-float);
+  /* Opaque enough to be readable — not transparent glass */
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  background: rgba(14, 18, 42, 0.96);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.55), 0 4px 16px rgba(0,0,0,0.3);
+  color: #ffffff;
+}
+
+[data-theme="light"] .dropdown-menu {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(15,23,42,0.12);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.16), 0 4px 16px rgba(0,0,0,0.08);
+  color: #0f172a;
 }
 
 @keyframes scaleIn {
@@ -664,13 +673,13 @@ select option {
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: none;
   border: none;
   width: 100%;
   text-align: left;
   cursor: pointer;
-  color: var(--color-text);
+  color: inherit;
   font-size: var(--text-sm);
   font-weight: 400;
   height: auto;
@@ -678,9 +687,12 @@ select option {
   letter-spacing: 0.01em;
 }
 .menu-item::before { display: none; }
-.menu-item:hover { background: var(--glass-white-md); }
+.menu-item:hover { background: rgba(255,255,255,0.10); }
 
-.menu-divider { height: 1px; background: var(--glass-border-subtle); margin: 5px 0; }
+[data-theme="light"] .menu-item:hover { background: rgba(15,23,42,0.07); }
+
+.menu-divider { height: 1px; background: rgba(255,255,255,0.10); margin: 5px 0; }
+[data-theme="light"] .menu-divider { background: rgba(15,23,42,0.10); }
 
 .menu-item-group {
   padding: 8px 14px 10px;
@@ -691,7 +703,7 @@ select option {
 .menu-item-group label {
   font-size: var(--text-2xs);
   font-weight: 600;
-  color: var(--color-text-muted);
+  color: rgba(255,255,255,0.55);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -699,6 +711,7 @@ select option {
   text-transform: uppercase;
   margin-bottom: 4px;
 }
+[data-theme="light"] .menu-item-group label { color: rgba(15,23,42,0.52); }
 .menu-item-group input { font-size: var(--text-sm); height: 40px !important; }
 
 /* ── 15. CREATION LAYOUT ── */
@@ -740,8 +753,11 @@ select option {
 .style-controls select,
 .style-controls input[type="number"] {
   width: auto;
-  height: 40px !important;
+  height: 46px !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
   font-size: var(--text-sm);
+  line-height: 46px;
 }
 
 /* ── 16. STYLE PANELS ── */
@@ -802,8 +818,8 @@ select option {
 .style-group-sm { flex: 0 0 90px; min-width: 90px; }
 .style-group-xs { flex: 0 0 60px; min-width: 60px; }
 
-.style-select   { height: 42px !important; font-size: var(--text-sm); }
-.style-input-sm { height: 42px !important; padding: 0 10px !important; font-size: var(--text-sm); width: 100%; }
+.style-select   { height: 46px !important; padding-top: 0 !important; padding-bottom: 0 !important; font-size: var(--text-sm); line-height: 46px; }
+.style-input-sm { height: 46px !important; padding: 0 10px !important; font-size: var(--text-sm); line-height: 46px; width: 100%; }
 
 .style-color {
   width: 50px;
