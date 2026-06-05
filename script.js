@@ -82,7 +82,8 @@ function optionsToArray(mapOrArr) {
 // Apply saved settings immediately from localStorage (no flicker on load)
 (function applyLocalSettings() {
     const dark = LS.get('darkMode');
-    if (dark) document.body.classList.add('dark-mode');
+    // Dark is the default (no attribute). Only set light if explicitly saved.
+    if (dark === false) document.documentElement.setAttribute('data-theme', 'light');
     const bgUrl = LS.get('backgroundUrl');
     if (bgUrl) document.getElementById('app-background').style.backgroundImage = `url('${bgUrl}')`;
     const savedKey = LS.get('tmdb_api_key');
@@ -94,8 +95,13 @@ onSnapshot(doc(db, 'settings', 'app'), (snap) => {
     if (!snap.exists()) return;
     const data = snap.data();
     if (data.darkMode !== undefined) {
-        document.body.classList.toggle('dark-mode', !!data.darkMode);
-        LS.set('darkMode', !!data.darkMode);
+        const isDark = !!data.darkMode;
+        if (isDark) {
+            document.documentElement.removeAttribute('data-theme');
+        } else {
+            document.documentElement.setAttribute('data-theme', 'light');
+        }
+        LS.set('darkMode', isDark);
         updateThemeIcon();
     }
     if (data.backgroundUrl) {
@@ -111,7 +117,7 @@ onSnapshot(doc(db, 'settings', 'app'), (snap) => {
 });
 
 function updateThemeIcon() {
-    const isDark = document.body.classList.contains('dark-mode');
+    const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
     const btn = document.getElementById('theme-toggle');
     if (!btn) return;
     btn.querySelector('.material-icons-round').textContent = isDark ? 'light_mode' : 'dark_mode';
@@ -213,10 +219,16 @@ document.addEventListener('click', (e) => {
 });
 
 document.getElementById('theme-toggle').onclick = () => {
-    const newValue = !document.body.classList.contains('dark-mode');
-    document.body.classList.toggle('dark-mode', newValue);
+    // Toggle: dark (no attribute) ↔ light (data-theme="light")
+    const currentlyDark = document.documentElement.getAttribute('data-theme') !== 'light';
+    const newIsDark = !currentlyDark;
+    if (newIsDark) {
+        document.documentElement.removeAttribute('data-theme');
+    } else {
+        document.documentElement.setAttribute('data-theme', 'light');
+    }
     updateThemeIcon();
-    saveSetting('darkMode', newValue);
+    saveSetting('darkMode', newIsDark);
 };
 
 document.getElementById('bg-upload-input').addEventListener('change', async (e) => {
