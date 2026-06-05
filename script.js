@@ -40,11 +40,14 @@ const LS = {
 
 let currentSessionId = null;
 let myVotedSessions = {};
+// True after user has manually toggled theme — prevents Firebase from overriding
+let studentThemeOverridden = false;
 let chartInstance = null;
 let tournamentChartInstance = null;
 // TMDB key hardcoded as default, overridable via settings
 let tmdbApiKey = "ab2d6aeb4bb7d48768a7b5a95873613c";
 let moviePool = [];
+let tournamentGroupSize = 4; // adjustable 2–5
 let currentTournamentId = null;
 let currentTournamentData = null;
 let dbListenersAttached = false;
@@ -96,10 +99,13 @@ onSnapshot(doc(db, 'settings', 'app'), (snap) => {
     const data = snap.data();
     if (data.darkMode !== undefined) {
         const isDark = !!data.darkMode;
-        if (isDark) {
-            document.documentElement.removeAttribute('data-theme');
-        } else {
-            document.documentElement.setAttribute('data-theme', 'light');
+        // Only sync from Firebase if the user hasn't manually overridden the theme
+        if (!studentThemeOverridden) {
+            if (isDark) {
+                document.documentElement.removeAttribute('data-theme');
+            } else {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
         }
         LS.set('darkMode', isDark);
         updateThemeIcon();
@@ -219,6 +225,7 @@ document.addEventListener('click', (e) => {
 });
 
 document.getElementById('theme-toggle').onclick = () => {
+    studentThemeOverridden = true; // User is manually choosing — don't let Firebase override
     // Toggle: dark (no attribute) ↔ light (data-theme="light")
     const currentlyDark = document.documentElement.getAttribute('data-theme') !== 'light';
     const newIsDark = !currentlyDark;
@@ -306,6 +313,12 @@ tmdbKeyInput.addEventListener('blur', (e) => {
 function showView(name) {
     Object.values(views).forEach(el => el.classList.add('hidden'));
     views[name].classList.remove('hidden');
+    // Hide winner overlay when leaving student view
+    if (name !== 'student') {
+        const wo = document.getElementById('winner-overlay');
+        if (wo) wo.classList.add('hidden');
+        winnerShown = false;
+    }
 }
 
 // ============================
@@ -566,26 +579,81 @@ function renderChart(data, canvasId) {
     if (canvasId === 'tournament-chart' && tournamentChartInstance) { tournamentChartInstance.destroy(); tournamentChartInstance = null; }
 
     const opts = optionsToArray(data.options);
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const textColor  = isLight ? '#0f172a' : '#ffffff';
+    const gridColor  = isLight ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.12)';
+    const chartType  = data.chartType || 'bar';
+    const isBar = chartType === 'bar';
+
     const inst = new Chart(canvas.getContext('2d'), {
-        type: data.chartType || 'bar',
+        type: chartType,
         data: {
             labels: opts.map(o => o.text),
             datasets: [{
                 label: '# Stemmer',
                 data: opts.map(o => o.votes || 0),
-                backgroundColor: opts.map(o => o.color),
-                borderWidth: 1
+                backgroundColor: opts.map(o => o.color || 'rgba(94,231,223,0.6)'),
+                borderColor:     opts.map(o => o.color || 'rgba(94,231,223,0.8)'),
+                borderWidth: 2,
+                borderRadius: isBar ? 8 : 0,
+                hoverBorderWidth: 3
             }]
         },
         options: {
             responsive: true,
+            animation: { duration: 500, easing: 'easeOutQuart' },
             plugins: {
-                legend: { labels: { color: getComputedStyle(document.body).getPropertyValue('--text-color') } }
-            }
+                legend: {
+                    display: !isBar,
+                    labels: { color: textColor, font: { family: 'DM Sans', size: 13 }, padding: 16 }
+                },
+                tooltip: {
+                    backgroundColor: isLight ? 'rgba(255,255,255,0.95)' : 'rgba(14,18,40,0.96)',
+                    titleColor: textColor, bodyColor: textColor,
+                    borderColor: isLight ? 'rgba(15,23,42,0.14)' : 'rgba(255,255,255,0.18)',
+                    borderWidth: 1, cornerRadius: 10, padding: 10
+                }
+            },
+            scales: isBar ? {
+                x: {
+                    ticks: { color: textColor, font: { family: 'DM Sans', size: 13 }, maxRotation: 0 },
+                    grid:  { color: gridColor }
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: { color: textColor, font: { family: 'DM Sans', size: 12 }, stepSize: 1 },
+                    grid:  { color: gridColor }
+                }
+            } : {}
         }
     });
     if (canvasId === 'results-chart') chartInstance = inst;
     else tournamentChartInstance = inst;
+
+    // Render poster row below chart
+    const posterRowId = canvasId === 'results-chart' ? 'results-poster-row' : 'tournament-poster-row';
+    renderPosterRow(opts, posterRowId);
+}
+
+function renderPosterRow(opts, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const maxVotes = Math.max(...opts.map(o => o.votes || 0), 0);
+    container.innerHTML = opts.map(opt => {
+        const isWinner = maxVotes > 0 && (opt.votes || 0) === maxVotes;
+        return `
+            <div class="chart-poster-item${isWinner ? ' is-winner' : ''}">
+                ${opt.imgUrl
+                    ? `<img src="${opt.imgUrl}" class="chart-poster-img" alt="${opt.text}">`
+                    : `<div class="chart-poster-img" style="background:${opt.color || 'rgba(94,231,223,0.15)'};display:flex;align-items:center;justify-content:center;">
+                         <span class="material-icons-round" style="font-size:1.8rem;opacity:0.5">movie</span>
+                       </div>`
+                }
+                <span class="chart-poster-label">${opt.text}</span>
+                <span class="chart-poster-votes">${opt.votes || 0} 🗳</span>
+            </div>
+        `;
+    }).join('');
 }
 
 // ============================
@@ -647,45 +715,162 @@ document.getElementById('new-tournament-btn').onclick = () => {
     renderTournamentMovieSelect();
 };
 
+// Tournament movie display order (array of moviePool indices)
+let tournamentDisplayOrder = [];
+
 function renderTournamentMovieSelect() {
     const container = document.getElementById('tournament-movie-select');
     container.innerHTML = '';
     if (!moviePool.length) {
         container.innerHTML = '<div class="empty-pool-message">Ingen filmer i poolen. Legg til via TMDB-søk.</div>';
         document.getElementById('start-tournament-btn').disabled = true;
+        document.getElementById('group-preview-wrap').classList.add('hidden');
         return;
     }
-    moviePool.forEach((movie, idx) => {
+
+    // Init order if needed
+    if (tournamentDisplayOrder.length !== moviePool.length) {
+        tournamentDisplayOrder = moviePool.map((_, i) => i);
+    }
+
+    let dragSrcEl = null;
+
+    tournamentDisplayOrder.forEach((poolIdx, displayPos) => {
+        const movie = moviePool[poolIdx];
         const item = document.createElement('div');
         item.className = 'pool-item';
+        item.draggable = true;
+        item.dataset.displayPos = displayPos;
+
         item.innerHTML = `
-            <input type="checkbox" class="pool-item-checkbox t-select-cb" data-index="${idx}">
-            ${movie.posterUrl ? `<img src="${movie.posterUrl}" class="pool-item-poster" alt="">` : '<div class="pool-item-poster no-poster"><span class="material-icons-round">movie</span></div>'}
+            <span class="drag-handle material-icons-round">drag_indicator</span>
+            <input type="checkbox" class="pool-item-checkbox t-select-cb" data-pool-idx="${poolIdx}">
+            ${movie.posterUrl
+                ? `<img src="${movie.posterUrl}" class="pool-item-poster" alt="">`
+                : '<div class="no-poster"><span class="material-icons-round">movie</span></div>'}
             <span class="pool-item-title">${movie.title}</span>
         `;
-        item.querySelector('.t-select-cb').addEventListener('change', updateTournamentStartBtn);
+
+        item.querySelector('.t-select-cb').addEventListener('change', () => {
+            updateTournamentStartBtn();
+            renderGroupPreview();
+        });
+
+        // ── Drag events ──
+        item.addEventListener('dragstart', e => {
+            dragSrcEl = item;
+            e.dataTransfer.effectAllowed = 'move';
+            setTimeout(() => item.classList.add('is-dragging'), 0);
+        });
+
+        item.addEventListener('dragend', () => {
+            item.classList.remove('is-dragging');
+            container.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+            dragSrcEl = null;
+        });
+
+        item.addEventListener('dragover', e => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (dragSrcEl && dragSrcEl !== item) {
+                container.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+                item.classList.add('drag-over');
+            }
+        });
+
+        item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+
+        item.addEventListener('drop', e => {
+            e.preventDefault();
+            if (!dragSrcEl || dragSrcEl === item) return;
+            item.classList.remove('drag-over');
+
+            const allItems = [...container.querySelectorAll('.pool-item')];
+            const srcPos = allItems.indexOf(dragSrcEl);
+            const tgtPos = allItems.indexOf(item);
+
+            const [moved] = tournamentDisplayOrder.splice(srcPos, 1);
+            tournamentDisplayOrder.splice(tgtPos, 0, moved);
+
+            renderTournamentMovieSelect();
+            renderGroupPreview();
+        });
+
         container.appendChild(item);
     });
+
     updateTournamentStartBtn();
+    renderGroupPreview();
+}
+
+function renderGroupPreview() {
+    const wrap = document.getElementById('group-preview-wrap');
+    const container = document.getElementById('group-preview');
+    if (!wrap || !container) return;
+
+    // Get selected movies in current display order
+    const allItems = [...document.querySelectorAll('#tournament-movie-select .pool-item')];
+    const selectedMovies = [];
+    allItems.forEach(item => {
+        const cb = item.querySelector('.t-select-cb');
+        if (cb && cb.checked) selectedMovies.push(moviePool[parseInt(cb.dataset.poolIdx)]);
+    });
+
+    if (selectedMovies.length < 4) {
+        wrap.classList.add('hidden');
+        return;
+    }
+
+    wrap.classList.remove('hidden');
+    const groups = computeGroupIndices(selectedMovies.length);
+
+    container.innerHTML = groups.map((grp, gi) => {
+        const movies = grp.map(i => selectedMovies[i]);
+        return `
+            <div class="group-preview-card">
+                <div class="group-preview-label">Gruppe ${gi + 1}</div>
+                ${movies.map(m => `
+                    <div class="group-preview-movie">
+                        ${m.posterUrl ? `<img src="${m.posterUrl}" class="group-preview-poster" alt="">` : '<span class="material-icons-round" style="font-size:0.9rem;opacity:0.5">movie</span>'}
+                        <span>${m.title}</span>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }).join('');
 }
 
 function updateTournamentStartBtn() {
     const n = document.querySelectorAll('.t-select-cb:checked').length;
     const btn = document.getElementById('start-tournament-btn');
-    btn.disabled = n < 4;
-    btn.innerHTML = n >= 4
+    const minNeeded = tournamentGroupSize;
+    btn.disabled = n < minNeeded;
+    btn.innerHTML = n >= minNeeded
         ? `<span class="material-icons-round">play_arrow</span> Start turnering med ${n} filmer`
-        : `<span class="material-icons-round">play_arrow</span> Velg minst 4 filmer (${n} valgt)`;
+        : `<span class="material-icons-round">play_arrow</span> Velg minst ${minNeeded} filmer (${n} valgt)`;
 }
 
+// Group size selector — pill buttons
+document.querySelectorAll('.group-size-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        tournamentGroupSize = parseInt(btn.dataset.size);
+        document.querySelectorAll('.group-size-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        updateTournamentStartBtn();
+        renderGroupPreview();
+    });
+});
+
 function computeGroupIndices(total) {
+    const groupSize = tournamentGroupSize || 4;
     const groups = [];
     let i = 0;
     while (i < total) {
-        const size = Math.min(4, total - i);
+        const size = Math.min(groupSize, total - i);
         groups.push(Array.from({ length: size }, (_, j) => i + j));
         i += size;
     }
+    // Merge a too-small last group into the previous one
     if (groups.length > 1 && groups[groups.length - 1].length < 2) {
         const last = groups.pop();
         groups[groups.length - 1].push(...last);
@@ -694,11 +879,16 @@ function computeGroupIndices(total) {
 }
 
 document.getElementById('start-tournament-btn').onclick = async () => {
-    const cbs = document.querySelectorAll('.t-select-cb:checked');
-    const selected = Array.from(cbs).map(cb => moviePool[parseInt(cb.dataset.index)]);
+    // Collect selected movies in current DISPLAY ORDER (teacher-defined order, not shuffled)
+    const allItems = [...document.querySelectorAll('#tournament-movie-select .pool-item')];
+    const selected = [];
+    allItems.forEach(item => {
+        const cb = item.querySelector('.t-select-cb');
+        if (cb && cb.checked) selected.push(moviePool[parseInt(cb.dataset.poolIdx)]);
+    });
     if (selected.length < 4) { alert("Velg minst 4 filmer."); return; }
 
-    const shuffled = [...selected].sort(() => Math.random() - 0.5);
+    const shuffled = selected; // use teacher's ordering — no shuffle
     const groupIndices = computeGroupIndices(shuffled.length);
     const code = 'T' + Math.floor(10000 + Math.random() * 90000);
 
@@ -725,6 +915,113 @@ document.getElementById('start-tournament-btn').onclick = async () => {
 
     subscribeTournament(currentTournamentId);
 };
+
+// ============================
+// QR FULLSCREEN
+// ============================
+
+let qrFullscreenText = '';
+
+function openQrFullscreen(text, codeLabel) {
+    qrFullscreenText = text;
+    const overlay = document.getElementById('qr-fullscreen-overlay');
+    const codeDisplay = document.getElementById('qr-fs-code-text');
+    const canvas = document.getElementById('qr-fs-canvas');
+
+    codeDisplay.textContent = codeLabel || '';
+    canvas.innerHTML = '';
+    new QRCode(canvas, { text, width: 280, height: 280 });
+
+    overlay.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeQrFullscreen() {
+    document.getElementById('qr-fullscreen-overlay').classList.add('hidden');
+    document.body.style.overflow = '';
+}
+
+// Click backdrop to close
+document.getElementById('qr-fullscreen-overlay').addEventListener('click', e => {
+    if (e.target.classList.contains('qr-fs-backdrop') || e.target.id === 'qr-fullscreen-overlay') {
+        closeQrFullscreen();
+    }
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeQrFullscreen();
+});
+
+// Click QR containers to open fullscreen
+document.getElementById('qrcode').addEventListener('click', () => {
+    const code = document.getElementById('display-code').textContent;
+    if (code && code !== '---') {
+        openQrFullscreen(`${location.origin}${location.pathname}?code=${code}`, code);
+    }
+});
+document.getElementById('tournament-qrcode').addEventListener('click', () => {
+    const code = document.getElementById('tournament-code').textContent;
+    if (code && code !== '---') {
+        openQrFullscreen(`${location.origin}${location.pathname}?code=${code}`, code);
+    }
+});
+
+// ============================
+// WINNER CELEBRATION
+// ============================
+
+let winnerShown = false;
+
+function showWinnerCelebration(movie) {
+    if (winnerShown) return;
+    winnerShown = true;
+
+    const overlay   = document.getElementById('winner-overlay');
+    const posterImg = document.getElementById('winner-poster-img');
+    const titleEl   = document.getElementById('winner-title-text');
+    const taglineEl = document.getElementById('winner-tagline-text');
+
+    if (!overlay) return;
+
+    if (movie?.posterUrl) {
+        posterImg.src = movie.posterUrl;
+        posterImg.classList.remove('hidden');
+    } else {
+        posterImg.classList.add('hidden');
+    }
+    titleEl.textContent  = movie ? movie.title : 'Turneringen er over!';
+    taglineEl.textContent = movie ? `${movie.title} vant!` : '';
+
+    overlay.classList.remove('hidden');
+    launchConfetti();
+}
+
+function launchConfetti() {
+    const container = document.getElementById('confetti-container');
+    if (!container) return;
+    const COLORS = ['#5ee7df','#b490f5','#f7a8c4','#ffd27f','#a8f08a','#f87171','#ffffff'];
+    const count = 150;
+
+    for (let i = 0; i < count; i++) {
+        const delay = Math.random() * 1200;
+        setTimeout(() => {
+            const p = document.createElement('div');
+            p.className = 'confetti-particle';
+            const size = 7 + Math.random() * 11;
+            p.style.cssText = [
+                `left: ${Math.random() * 100}vw`,
+                `width: ${size}px`,
+                `height: ${size * (Math.random() > 0.5 ? 1 : 2.2)}px`,
+                `background: ${COLORS[Math.floor(Math.random() * COLORS.length)]}`,
+                `border-radius: ${Math.random() > 0.4 ? '50%' : '2px'}`,
+                `animation-duration: ${1.8 + Math.random() * 2.2}s`,
+                `animation-delay: 0s`,
+                `transform: rotate(${Math.random()*360}deg)`
+            ].join(';');
+            container.appendChild(p);
+            setTimeout(() => p.remove(), 4500);
+        }, delay);
+    }
+}
 
 function subscribeTournament(tId) {
     if (tournamentUnsubscribe) tournamentUnsubscribe();
@@ -803,8 +1100,19 @@ document.getElementById('advance-tournament-btn').onclick = async () => {
     const sesData = sesSnap.data();
     const opts = optionsToArray(sesData.options);
 
-    let maxVotes = -1, winnerInGroupIdx = 0;
-    opts.forEach((opt, i) => { if ((opt.votes || 0) > maxVotes) { maxVotes = opt.votes || 0; winnerInGroupIdx = i; } });
+    // Find max votes and check for a tie
+    let maxVotes = -1;
+    opts.forEach(opt => { if ((opt.votes || 0) > maxVotes) maxVotes = opt.votes || 0; });
+    const tiedIndices = opts.map((opt, i) => ((opt.votes || 0) === maxVotes ? i : -1)).filter(i => i >= 0);
+
+    if (tiedIndices.length > 1) {
+        // TIE — start a tiebreaker session with only the tied movies
+        await startTiebreaker(data, group, opts, tiedIndices);
+        return;
+    }
+
+    // No tie — there is exactly one winner
+    const winnerInGroupIdx = tiedIndices[0] ?? 0;
     const winnerMovieIndex = group.movieIndices[winnerInGroupIdx];
 
     await updateDoc(doc(db, 'sessions', group.sessionId), { active: false });
@@ -853,6 +1161,50 @@ document.getElementById('advance-tournament-btn').onclick = async () => {
     }
 };
 
+async function startTiebreaker(data, group, opts, tiedIndices) {
+    // Close current session
+    await updateDoc(doc(db, 'sessions', group.sessionId), { active: false });
+
+    // Collect tied movies (narrowed to just the tied ones)
+    const tiedMovieIndices = tiedIndices.map(i => group.movieIndices[i]);
+    const tiedMovies = tiedMovieIndices.map(mi => data.movies[mi]);
+
+    const COLORS = ['#ff6b6b', '#4a90e2', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22'];
+    const tieOptions = tiedMovies.map((m, i) => ({
+        text: m.title, color: COLORS[i % COLORS.length],
+        textColor: '#ffffff', imgUrl: m.posterUrl || '', votes: 0
+    }));
+
+    const tiedNames = tiedMovies.map(m => m.title).join(' vs. ');
+    const tbRef = await addDoc(collection(db, 'sessions'), {
+        code: data.code + '_' + data.currentGroupIdx + '_tb' + Date.now(),
+        question: `Omspill: ${tiedNames}`,
+        options: optionsToMap(tieOptions),
+        questionStyle: { fontFamily: 'inherit', fontSize: 24, bold: true, italic: false, textColor: '' },
+        optionsStyle:  { fontFamily: 'inherit', fontSize: 16, bold: false, italic: false },
+        chartType: 'bar', maxVotes: 1, active: true,
+        tournamentId: currentTournamentId, timestamp: Date.now()
+    });
+
+    // Update the group: new session + only tied movie indices remain
+    const groupPath = `groups.${data.currentGroupIdx}`;
+    await updateDoc(doc(db, 'tournaments', currentTournamentId), {
+        [`${groupPath}.sessionId`]:     tbRef.id,
+        [`${groupPath}.movieIndices`]:  tiedMovieIndices,
+        [`${groupPath}.status`]:        'tiebreaker',
+        status: 'voting'
+    });
+
+    // Show tiebreaker notice to teacher
+    const notice = document.getElementById('tiebreaker-notice');
+    const noticeText = document.getElementById('tiebreaker-notice-text');
+    if (notice && noticeText) {
+        noticeText.textContent = `Uavgjort! Ny votering mellom: ${tiedNames}`;
+        notice.classList.remove('hidden');
+        setTimeout(() => notice.classList.add('hidden'), 8000);
+    }
+}
+
 function renderBracket(data) {
     const container = document.getElementById('bracket-display');
     if (!container) return;
@@ -885,12 +1237,20 @@ function renderBracket(data) {
         container.appendChild(roundDiv);
     }
 
-    if (data.status === 'complete' && data.winnerMovieIndex != null) {
-        const w = data.movies[data.winnerMovieIndex];
-        const winDiv = document.createElement('div');
-        winDiv.className = 'tournament-winner-display';
-        winDiv.innerHTML = `🏆 <strong>${w?.title}</strong>`;
-        container.appendChild(winDiv);
+    // Admin winner display (below chart)
+    const adminWinDiv = document.getElementById('admin-winner-display');
+    if (adminWinDiv) {
+        if (data.status === 'complete' && data.winnerMovieIndex != null) {
+            const w = data.movies[data.winnerMovieIndex];
+            adminWinDiv.classList.remove('hidden');
+            adminWinDiv.innerHTML = `
+                <div class="admin-winner-trophy">🏆</div>
+                ${w?.posterUrl ? `<img src="${w.posterUrl}" class="admin-winner-poster" alt="${w.title}">` : ''}
+                <div class="admin-winner-title">${w?.title || '?'}</div>
+            `;
+        } else {
+            adminWinDiv.classList.add('hidden');
+        }
     }
 }
 
@@ -954,9 +1314,9 @@ function joinTournament(code) {
 
             if (tData.status === 'complete') {
                 const w = tData.winnerMovieIndex != null ? tData.movies[tData.winnerMovieIndex] : null;
-                qEl.textContent = w ? `🏆 Vinner: ${w.title}` : 'Turneringen er over!';
                 document.getElementById('student-options').innerHTML = '';
                 waitMsg.classList.add('hidden');
+                showWinnerCelebration(w);
                 return;
             }
 

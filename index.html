@@ -237,11 +237,12 @@
                     <h2>Live resultater</h2>
                     <div class="session-info">
                         <span>Kode: <strong id="display-code">---</strong></span>
-                        <div id="qrcode"></div>
+                        <div id="qrcode" class="qr-clickable" title="Klikk for fullskjerm"></div>
                     </div>
                 </div>
                 <div id="results-question-display" class="results-question"></div>
                 <canvas id="results-chart"></canvas>
+                <div id="results-poster-row" class="chart-poster-row"></div>
                 <div class="admin-actions">
                     <button id="next-round-btn" class="btn-secondary hidden">
                         <span class="material-icons-round">arrow_forward</span> Neste runde
@@ -257,19 +258,46 @@
                 <h2><span class="material-icons-round">emoji_events</span> Turnering</h2>
 
                 <div id="tournament-setup">
-                    <p style="opacity:0.7;margin-top:0;">Velg filmer fra poolen din til turneringen (minst 4). Systemet lager grupper på 4 og kårer automatisk vinnere.</p>
-                    <div id="tournament-movie-select" class="pool-list" style="max-height:280px;"></div>
+                    <p style="opacity:0.7;margin-top:0;">Velg filmer og dra dem i ønsket rekkefølge. Systemet lager grupper basert på rekkefølgen og gruppestørrelsen du setter.</p>
+
+                    <div class="group-size-row">
+                        <span class="group-size-label">
+                            <span class="material-icons-round">group</span>
+                            Antall per gruppe:
+                        </span>
+                        <div class="group-size-btns" role="group" aria-label="Antall filmer per gruppe">
+                            <button type="button" class="group-size-btn" data-size="2">2</button>
+                            <button type="button" class="group-size-btn" data-size="3">3</button>
+                            <button type="button" class="group-size-btn active" data-size="4">4</button>
+                            <button type="button" class="group-size-btn" data-size="5">5</button>
+                        </div>
+                    </div>
+
+                    <div id="tournament-movie-select" class="pool-list tournament-drag-list" style="max-height:300px;"></div>
+
+                    <div id="group-preview-wrap" class="group-preview-wrap hidden">
+                        <div class="group-preview-header">
+                            <span class="material-icons-round">grid_view</span>
+                            Forhåndsvisning av grupper
+                        </div>
+                        <div id="group-preview" class="group-preview-grid"></div>
+                    </div>
+
                     <button id="start-tournament-btn" class="btn-primary" style="margin-top:15px;" disabled>
                         <span class="material-icons-round">play_arrow</span> Start turnering
                     </button>
                 </div>
 
                 <div id="tournament-bracket" class="hidden">
+                    <div class="tournament-join-info">
+                        <span class="material-icons-round">info</span>
+                        <span>Del koden med elevene nå — de kan bli med og venter automatisk til du starter første gruppe.</span>
+                    </div>
                     <div id="bracket-display" class="bracket-display"></div>
                     <div class="tournament-controls">
                         <div class="session-info">
                             <span>Kode: <strong id="tournament-code">---</strong></span>
-                            <div id="tournament-qrcode"></div>
+                            <div id="tournament-qrcode" class="qr-clickable" title="Klikk for fullskjerm"></div>
                         </div>
                         <div class="tournament-btns">
                             <button id="launch-group-btn" class="btn-primary">
@@ -280,7 +308,13 @@
                             </button>
                         </div>
                     </div>
+                    <div id="tiebreaker-notice" class="tiebreaker-notice hidden">
+                        <span class="material-icons-round">sports_mma</span>
+                        <span id="tiebreaker-notice-text"></span>
+                    </div>
                     <canvas id="tournament-chart" style="max-height:280px;margin-top:20px;"></canvas>
+                    <div id="tournament-poster-row" class="chart-poster-row"></div>
+                    <div id="admin-winner-display" class="admin-winner-display hidden"></div>
                 </div>
             </div>
 
@@ -315,6 +349,27 @@
     </div>
 
 </main>
+
+<!-- QR FULLSCREEN OVERLAY — outside <main> to avoid stacking context issues -->
+<div id="qr-fullscreen-overlay" class="hidden" role="dialog" aria-modal="true" aria-label="QR-kode fullskjerm">
+    <div class="qr-fs-backdrop"></div>
+    <div class="qr-fs-content">
+        <div class="qr-fs-code" id="qr-fs-code-text">---</div>
+        <div id="qr-fs-canvas"></div>
+        <p class="qr-fs-hint">Trykk hvor som helst for å lukke</p>
+    </div>
+</div>
+
+<!-- WINNER CELEBRATION OVERLAY — outside <main> for true fullscreen -->
+<div id="winner-overlay" class="hidden" role="status" aria-live="polite">
+    <div class="winner-confetti-container" id="confetti-container"></div>
+    <div class="winner-content">
+        <div class="winner-crown">🏆</div>
+        <img id="winner-poster-img" src="" alt="" class="winner-poster hidden">
+        <h1 class="winner-title" id="winner-title-text"></h1>
+        <p class="winner-tagline" id="winner-tagline-text"></p>
+    </div>
+</div>
 
 <script type="module" src="script.js"></script>
 </body>
