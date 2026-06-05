@@ -1,12 +1,14 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
-import { getDatabase, ref, set, get, onValue, push, update } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-database.js";
+import {
+    getFirestore, doc, setDoc, getDoc, addDoc, updateDoc,
+    collection, getDocs, onSnapshot, query, where, increment
+} from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-storage.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyDFb5GK8bUZP2ZpMByG9-X1JiL-jNPFrKY",
     authDomain: "klassens-stemme.firebaseapp.com",
-    databaseURL: "https://klassens-stemme-default-rtdb.firebaseio.com/",
     projectId: "klassens-stemme",
     storageBucket: "klassens-stemme.firebasestorage.app",
     messagingSenderId: "607973299678",
@@ -14,22 +16,41 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+const db = getFirestore(app);
 const auth = getAuth(app);
 const storage = getStorage(app);
 
-// Global state
+// ============================
+// LOCAL STORAGE HELPERS
+// ============================
+
+const LS = {
+    get(key) {
+        try { const v = localStorage.getItem('ks_' + key); return v !== null ? JSON.parse(v) : null; }
+        catch { return null; }
+    },
+    set(key, value) {
+        try { localStorage.setItem('ks_' + key, JSON.stringify(value)); } catch {}
+    }
+};
+
+// ============================
+// GLOBAL STATE
+// ============================
+
 let currentSessionId = null;
 let myVotedSessions = {};
 let chartInstance = null;
 let tournamentChartInstance = null;
-let tmdbApiKey = "";
+// TMDB key hardcoded as default, overridable via settings
+let tmdbApiKey = "ab2d6aeb4bb7d48768a7b5a95873613c";
 let moviePool = [];
 let currentTournamentId = null;
 let currentTournamentData = null;
 let dbListenersAttached = false;
 let unsubscribeMoviePool = null;
 let unsubscribeTmdbKey = null;
+let unsubscribeHistory = null;
 let tournamentUnsubscribe = null;
 let questionImgFile = null;
 
@@ -40,17 +61,53 @@ const views = {
 };
 
 // ============================
-// GLOBAL SETTINGS (all users)
+// HELPERS: options stored as map in Firestore, displayed as array
 // ============================
 
-onValue(ref(db, 'settings/darkMode'), (snap) => {
-    document.body.classList.toggle('dark-mode', !!snap.val());
-    updateThemeIcon();
-});
+function optionsToMap(arr) {
+    const map = {};
+    arr.forEach((opt, i) => { map[String(i)] = opt; });
+    return map;
+}
 
-onValue(ref(db, 'settings/backgroundUrl'), (snap) => {
-    const url = snap.val();
-    document.getElementById('app-background').style.backgroundImage = url ? `url('${url}')` : '';
+function optionsToArray(mapOrArr) {
+    if (Array.isArray(mapOrArr)) return mapOrArr;
+    return Object.keys(mapOrArr || {}).sort((a, b) => +a - +b).map(k => mapOrArr[k]);
+}
+
+// ============================
+// GLOBAL SETTINGS (localStorage primary, Firestore secondary)
+// ============================
+
+// Apply saved settings immediately from localStorage (no flicker on load)
+(function applyLocalSettings() {
+    const dark = LS.get('darkMode');
+    if (dark) document.body.classList.add('dark-mode');
+    const bgUrl = LS.get('backgroundUrl');
+    if (bgUrl) document.getElementById('app-background').style.backgroundImage = `url('${bgUrl}')`;
+    const savedKey = LS.get('tmdb_api_key');
+    if (savedKey) tmdbApiKey = savedKey;
+})();
+
+// Sync settings from Firestore (single document for all app settings)
+onSnapshot(doc(db, 'settings', 'app'), (snap) => {
+    if (!snap.exists()) return;
+    const data = snap.data();
+    if (data.darkMode !== undefined) {
+        document.body.classList.toggle('dark-mode', !!data.darkMode);
+        LS.set('darkMode', !!data.darkMode);
+        updateThemeIcon();
+    }
+    if (data.backgroundUrl) {
+        document.getElementById('app-background').style.backgroundImage = `url('${data.backgroundUrl}')`;
+        LS.set('backgroundUrl', data.backgroundUrl);
+    }
+    if (data.tmdb_api_key) {
+        tmdbApiKey = data.tmdb_api_key;
+        LS.set('tmdb_api_key', data.tmdb_api_key);
+        const input = document.getElementById('tmdb-key-input');
+        if (input && document.activeElement !== input) input.value = data.tmdb_api_key;
+    }
 });
 
 function updateThemeIcon() {
@@ -59,6 +116,13 @@ function updateThemeIcon() {
     if (!btn) return;
     btn.querySelector('.material-icons-round').textContent = isDark ? 'light_mode' : 'dark_mode';
     btn.querySelector('.label').textContent = isDark ? 'Lys modus' : 'Mørk modus';
+}
+
+async function saveSetting(key, value) {
+    LS.set(key, value);
+    try {
+        await setDoc(doc(db, 'settings', 'app'), { [key]: value }, { merge: true });
+    } catch (e) { console.warn('Firestore settings write failed:', e); }
 }
 
 // ============================
@@ -91,12 +155,12 @@ onAuthStateChanged(auth, (user) => {
             attachDatabaseListeners();
             dbListenersAttached = true;
         }
+        // Show saved TMDB key in input
+        const input = document.getElementById('tmdb-key-input');
+        if (input) input.value = tmdbApiKey !== "ab2d6aeb4bb7d48768a7b5a95873613c" ? tmdbApiKey : (LS.get('tmdb_api_key') || "");
     } else {
         showView('landing');
-        if (pendingCode) {
-            joinSession(pendingCode);
-            pendingCode = null;
-        }
+        if (pendingCode) { joinSession(pendingCode); pendingCode = null; }
         loginBtn.classList.remove('hidden');
         logoutBtn.classList.add('hidden');
         if (bgLabel) bgLabel.style.display = 'none';
@@ -107,9 +171,8 @@ onAuthStateChanged(auth, (user) => {
     }
 });
 
-document.getElementById('admin-login-btn').onclick = () => {
+document.getElementById('admin-login-btn').onclick = () =>
     document.getElementById('login-modal').classList.remove('hidden');
-};
 
 document.getElementById('login-form').onsubmit = (e) => {
     e.preventDefault();
@@ -127,9 +190,8 @@ const loginModal = document.getElementById('login-modal');
 loginModal.querySelector('.close').onclick = () => loginModal.classList.add('hidden');
 loginModal.onclick = (e) => { if (e.target === loginModal) loginModal.classList.add('hidden'); };
 
-document.getElementById('logout-btn').onclick = () => {
-    signOut(auth).catch(err => alert("Kunne ikke logge ut: " + err.message));
-};
+document.getElementById('logout-btn').onclick = () =>
+    signOut(auth).catch(err => alert("Logg ut feilet: " + err.message));
 
 // ============================
 // THEME & UI
@@ -151,8 +213,10 @@ document.addEventListener('click', (e) => {
 });
 
 document.getElementById('theme-toggle').onclick = () => {
-    const isDark = document.body.classList.contains('dark-mode');
-    set(ref(db, 'settings/darkMode'), !isDark);
+    const newValue = !document.body.classList.contains('dark-mode');
+    document.body.classList.toggle('dark-mode', newValue);
+    updateThemeIcon();
+    saveSetting('darkMode', newValue);
 };
 
 document.getElementById('bg-upload-input').addEventListener('change', async (e) => {
@@ -160,17 +224,19 @@ document.getElementById('bg-upload-input').addEventListener('change', async (e) 
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-        document.getElementById('app-background').style.backgroundImage = `url('${ev.target.result}')`;
+        const dataUrl = ev.target.result;
+        document.getElementById('app-background').style.backgroundImage = `url('${dataUrl}')`;
+        LS.set('backgroundUrl', dataUrl);
     };
     reader.readAsDataURL(file);
     try {
         const storageRef = sRef(storage, 'backgrounds/' + Date.now());
         await uploadBytes(storageRef, file);
         const url = await getDownloadURL(storageRef);
-        await set(ref(db, 'settings/backgroundUrl'), url);
+        document.getElementById('app-background').style.backgroundImage = `url('${url}')`;
+        saveSetting('backgroundUrl', url);
     } catch (err) {
-        console.error(err);
-        alert("Lokal visning aktiv, men kunne ikke lagre til Firebase.");
+        console.warn("Storage upload failed, using local preview:", err);
     }
 });
 
@@ -179,45 +245,50 @@ document.getElementById('bg-upload-input').addEventListener('change', async (e) 
 // ============================
 
 function attachDatabaseListeners() {
-    unsubscribeTmdbKey = onValue(ref(db, 'settings/tmdb_api_key'), (snap) => {
-        tmdbApiKey = snap.val() || "";
-        if (tmdbKeyInput && document.activeElement !== tmdbKeyInput) tmdbKeyInput.value = tmdbApiKey;
-    });
-    unsubscribeMoviePool = onValue(ref(db, 'movie_pool'), (snap) => {
-        moviePool = snap.val() || [];
+    // TMDB key from local first
+    const localKey = LS.get('tmdb_api_key');
+    if (localKey) {
+        tmdbApiKey = localKey;
+        const input = document.getElementById('tmdb-key-input');
+        if (input) input.value = localKey;
+    }
+
+    // Movie pool
+    unsubscribeMoviePool = onSnapshot(doc(db, 'movie_pool', 'items'), (snap) => {
+        moviePool = snap.exists() ? (snap.data().movies || []) : [];
         renderMoviePool();
     });
+
     loadHistory();
 }
 
 function detachDatabaseListeners() {
-    if (unsubscribeTmdbKey) { unsubscribeTmdbKey(); unsubscribeTmdbKey = null; }
     if (unsubscribeMoviePool) { unsubscribeMoviePool(); unsubscribeMoviePool = null; }
+    if (unsubscribeHistory) { unsubscribeHistory(); unsubscribeHistory = null; }
 }
 
-let tmdbKeyTimer = null;
+// TMDB key input — save to Firestore and localStorage
 const tmdbKeyInput = document.getElementById('tmdb-key-input');
+let tmdbKeyTimer = null;
 
 function saveTmdbKey(value) {
     const key = value.trim();
-    if (key !== tmdbApiKey) {
-        set(ref(db, 'settings/tmdb_api_key'), key);
-    }
+    tmdbApiKey = key || "ab2d6aeb4bb7d48768a7b5a95873613c";
+    LS.set('tmdb_api_key', key);
+    saveSetting('tmdb_api_key', key);
 }
 
 tmdbKeyInput.addEventListener('input', (e) => {
     clearTimeout(tmdbKeyTimer);
     tmdbKeyTimer = setTimeout(() => saveTmdbKey(e.target.value), 800);
 });
-
-// Also save immediately when field loses focus
 tmdbKeyInput.addEventListener('blur', (e) => {
     clearTimeout(tmdbKeyTimer);
     saveTmdbKey(e.target.value);
 });
 
 // ============================
-// VIEW
+// SHOW VIEW
 // ============================
 
 function showView(name) {
@@ -344,7 +415,6 @@ document.getElementById('launch-poll-btn').onclick = async () => {
     try {
         const question = document.getElementById('question-text').value.trim();
         if (!question) { alert("Skriv inn et spørsmål."); return; }
-
         const optRows = document.querySelectorAll('.option-row-wrapper');
         if (!optRows.length) { alert("Legg til minst ett svaralternativ."); return; }
 
@@ -359,7 +429,7 @@ document.getElementById('launch-poll-btn').onclick = async () => {
             questionImgUrl = await getDownloadURL(imgRef);
         }
 
-        const optionsData = [];
+        const optionsArr = [];
         for (const row of optRows) {
             const text = row.querySelector('.opt-text').value;
             const color = row.querySelector('.opt-color').value;
@@ -371,19 +441,25 @@ document.getElementById('launch-poll-btn').onclick = async () => {
                 await uploadBytes(imgRef, fileInput.files[0]);
                 imgUrl = await getDownloadURL(imgRef);
             }
-            optionsData.push({ text, color, textColor, imgUrl, votes: 0 });
+            optionsArr.push({ text, color, textColor, imgUrl, votes: 0 });
         }
 
-        const sessionRef = push(ref(db, 'sessions'));
-        currentSessionId = sessionRef.key;
-        await set(sessionRef, {
-            code, question, questionStyle, questionImgUrl,
-            optionsStyle, options: optionsData,
+        // Store options as MAP for atomic vote increment in Firestore
+        const sessionData = {
+            code,
+            question,
+            questionStyle,
+            questionImgUrl,
+            optionsStyle,
+            options: optionsToMap(optionsArr),
             chartType: document.getElementById('chart-type').value,
             maxVotes: parseInt(document.getElementById('max-votes').value) || 1,
-            active: true, timestamp: Date.now()
-        });
+            active: true,
+            timestamp: Date.now()
+        };
 
+        const docRef = await addDoc(collection(db, 'sessions'), sessionData);
+        currentSessionId = docRef.id;
         showResultsView(code);
         listenToResults(currentSessionId);
     } catch (err) {
@@ -402,6 +478,8 @@ function showResultsView(code) {
         text: `${location.origin}${location.pathname}?code=${code}`,
         width: 100, height: 100
     });
+    document.getElementById('next-round-btn').classList.remove('hidden');
+    document.getElementById('stop-poll-btn').classList.remove('hidden');
 }
 
 document.getElementById('create-new-btn').onclick = () => {
@@ -423,7 +501,7 @@ document.getElementById('create-new-btn').onclick = () => {
 
 document.getElementById('stop-poll-btn').onclick = async () => {
     if (currentSessionId) {
-        await update(ref(db, `sessions/${currentSessionId}`), { active: false }).catch(console.error);
+        await updateDoc(doc(db, 'sessions', currentSessionId), { active: false }).catch(console.error);
     }
     document.getElementById('creation-view').classList.remove('hidden');
     document.getElementById('live-results-view').classList.add('hidden');
@@ -431,7 +509,7 @@ document.getElementById('stop-poll-btn').onclick = async () => {
 
 document.getElementById('next-round-btn').onclick = async () => {
     if (currentSessionId) {
-        await update(ref(db, `sessions/${currentSessionId}`), { active: false }).catch(console.error);
+        await updateDoc(doc(db, 'sessions', currentSessionId), { active: false }).catch(console.error);
     }
     document.getElementById('creation-view').classList.remove('hidden');
     document.getElementById('live-results-view').classList.add('hidden');
@@ -441,12 +519,15 @@ document.getElementById('next-round-btn').onclick = async () => {
 // RESULTS
 // ============================
 
+let unsubscribeResults = null;
+
 function listenToResults(sessionId) {
-    onValue(ref(db, `sessions/${sessionId}`), (snap) => {
-        const data = snap.val();
-        if (!data) return;
+    if (unsubscribeResults) unsubscribeResults();
+    unsubscribeResults = onSnapshot(doc(db, 'sessions', sessionId), (snap) => {
+        if (!snap.exists()) return;
+        const data = { id: snap.id, ...snap.data() };
         renderResultsHeader(data);
-        renderChart(data, 'results-chart', (inst) => { chartInstance = inst; });
+        renderChart(data, 'results-chart');
     });
 }
 
@@ -466,13 +547,13 @@ function renderResultsHeader(data) {
     el.appendChild(p);
 }
 
-function renderChart(data, canvasId, onCreated) {
+function renderChart(data, canvasId) {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     if (canvasId === 'results-chart' && chartInstance) { chartInstance.destroy(); chartInstance = null; }
     if (canvasId === 'tournament-chart' && tournamentChartInstance) { tournamentChartInstance.destroy(); tournamentChartInstance = null; }
 
-    const opts = Array.isArray(data.options) ? data.options : Object.values(data.options || {});
+    const opts = optionsToArray(data.options);
     const inst = new Chart(canvas.getContext('2d'), {
         type: data.chartType || 'bar',
         data: {
@@ -493,7 +574,6 @@ function renderChart(data, canvasId, onCreated) {
     });
     if (canvasId === 'results-chart') chartInstance = inst;
     else tournamentChartInstance = inst;
-    if (onCreated) onCreated(inst);
 }
 
 // ============================
@@ -501,44 +581,44 @@ function renderChart(data, canvasId, onCreated) {
 // ============================
 
 function loadHistory() {
-    onValue(ref(db, 'sessions'), (snap) => {
+    if (unsubscribeHistory) unsubscribeHistory();
+    unsubscribeHistory = onSnapshot(collection(db, 'sessions'), (snap) => {
         const list = document.getElementById('history-list');
         if (!list) return;
         list.innerHTML = "";
-        const data = snap.val();
-        if (!data) return;
 
-        Object.keys(data)
-            .map(key => ({ id: key, ...data[key] }))
-            .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
-            .forEach(session => {
-                const li = document.createElement('li');
-                li.className = 'history-item';
-                li.innerHTML = `
-                    <span class="history-question">${session.question || 'Uten tittel'}</span>
-                    <span class="history-status ${session.active ? 'status-active' : 'status-ended'}">
-                        ${session.active ? 'Aktiv' : 'Avsluttet'}
-                    </span>
-                `;
-                li.onclick = () => {
-                    currentSessionId = session.id;
-                    document.getElementById('creation-view').classList.add('hidden');
-                    document.getElementById('tournament-view').classList.add('hidden');
-                    document.getElementById('live-results-view').classList.remove('hidden');
-                    document.getElementById('display-code').innerText = session.code || '---';
-                    document.getElementById('qrcode').innerHTML = "";
-                    new QRCode(document.getElementById('qrcode'), {
-                        text: `${location.origin}${location.pathname}?code=${session.code}`,
-                        width: 100, height: 100
-                    });
-                    document.getElementById('next-round-btn').classList.toggle('hidden', !session.active);
-                    document.getElementById('stop-poll-btn').classList.toggle('hidden', !session.active);
-                    renderResultsHeader(session);
-                    renderChart(session, 'results-chart');
-                    listenToResults(session.id);
-                };
-                list.appendChild(li);
-            });
+        const sessions = snap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+        sessions.forEach(session => {
+            const li = document.createElement('li');
+            li.className = 'history-item';
+            li.innerHTML = `
+                <span class="history-question">${session.question || 'Uten tittel'}</span>
+                <span class="history-status ${session.active ? 'status-active' : 'status-ended'}">
+                    ${session.active ? 'Aktiv' : 'Avsluttet'}
+                </span>
+            `;
+            li.onclick = () => {
+                currentSessionId = session.id;
+                document.getElementById('creation-view').classList.add('hidden');
+                document.getElementById('tournament-view').classList.add('hidden');
+                document.getElementById('live-results-view').classList.remove('hidden');
+                document.getElementById('display-code').innerText = session.code || '---';
+                document.getElementById('qrcode').innerHTML = "";
+                new QRCode(document.getElementById('qrcode'), {
+                    text: `${location.origin}${location.pathname}?code=${session.code}`,
+                    width: 100, height: 100
+                });
+                document.getElementById('next-round-btn').classList.toggle('hidden', !session.active);
+                document.getElementById('stop-poll-btn').classList.toggle('hidden', !session.active);
+                renderResultsHeader(session);
+                renderChart(session, 'results-chart');
+                listenToResults(session.id);
+            };
+            list.appendChild(li);
+        });
     });
 }
 
@@ -594,7 +674,6 @@ function computeGroupIndices(total) {
         groups.push(Array.from({ length: size }, (_, j) => i + j));
         i += size;
     }
-    // Merge a group of 1 into the previous group
     if (groups.length > 1 && groups[groups.length - 1].length < 2) {
         const last = groups.pop();
         groups[groups.length - 1].push(...last);
@@ -613,16 +692,15 @@ document.getElementById('start-tournament-btn').onclick = async () => {
 
     const groups = {};
     groupIndices.forEach((indices, i) => {
-        groups[i] = { round: 0, movieIndices: indices, winnerMovieIndex: null, sessionId: null, status: 'waiting' };
+        groups[String(i)] = { round: 0, movieIndices: indices, winnerMovieIndex: null, sessionId: null, status: 'waiting' };
     });
 
-    const tournRef = push(ref(db, 'tournaments'));
-    currentTournamentId = tournRef.key;
-    await set(tournRef, {
+    const docRef = await addDoc(collection(db, 'tournaments'), {
         code, movies: shuffled, groups,
         currentGroupIdx: 0, currentRound: 0,
         status: 'waiting', timestamp: Date.now()
     });
+    currentTournamentId = docRef.id;
 
     document.getElementById('tournament-setup').classList.add('hidden');
     document.getElementById('tournament-bracket').classList.remove('hidden');
@@ -638,9 +716,9 @@ document.getElementById('start-tournament-btn').onclick = async () => {
 
 function subscribeTournament(tId) {
     if (tournamentUnsubscribe) tournamentUnsubscribe();
-    tournamentUnsubscribe = onValue(ref(db, `tournaments/${tId}`), (snap) => {
-        const data = snap.val();
-        if (!data) return;
+    tournamentUnsubscribe = onSnapshot(doc(db, 'tournaments', tId), (snap) => {
+        if (!snap.exists()) return;
+        const data = { id: snap.id, ...snap.data() };
         currentTournamentData = data;
         renderBracket(data);
 
@@ -655,8 +733,8 @@ function subscribeTournament(tId) {
             advanceBtn.classList.remove('hidden');
             const group = getCurrentGroup(data);
             if (group?.sessionId) {
-                onValue(ref(db, `sessions/${group.sessionId}`), (sSn) => {
-                    if (sSn.val()) renderChart(sSn.val(), 'tournament-chart');
+                onSnapshot(doc(db, 'sessions', group.sessionId), (sSn) => {
+                    if (sSn.exists()) renderChart({ ...sSn.data() }, 'tournament-chart');
                 });
             }
         } else {
@@ -667,8 +745,7 @@ function subscribeTournament(tId) {
 }
 
 function getCurrentGroup(data) {
-    const groups = data.groups || {};
-    return groups[data.currentGroupIdx] || null;
+    return (data.groups || {})[String(data.currentGroupIdx)] || null;
 }
 
 document.getElementById('launch-group-btn').onclick = async () => {
@@ -679,27 +756,28 @@ document.getElementById('launch-group-btn').onclick = async () => {
 
     const movies = group.movieIndices.map(i => data.movies[i]);
     const COLORS = ['#ff6b6b', '#4a90e2', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22'];
+    const optionsArr = movies.map((m, i) => ({
+        text: m.title, color: COLORS[i % COLORS.length],
+        textColor: '#ffffff', imgUrl: m.posterUrl || '', votes: 0
+    }));
 
-    const sessionRef = push(ref(db, 'sessions'));
-    const sessionId = sessionRef.key;
-    const roundLabel = `Runde ${data.currentRound + 1}, Gruppe ${data.currentGroupIdx - Object.values(data.groups).filter(g => g.round < data.currentRound).length + 1}`;
-    await set(sessionRef, {
+    const roundLabel = `Runde ${data.currentRound + 1}, Gruppe ${data.currentGroupIdx + 1}`;
+    const sessionRef = await addDoc(collection(db, 'sessions'), {
         code: data.code + '_' + data.currentGroupIdx,
         question: `Turnering – ${roundLabel}`,
-        options: movies.map((m, i) => ({
-            text: m.title, color: COLORS[i % COLORS.length],
-            textColor: '#ffffff', imgUrl: m.posterUrl || '', votes: 0
-        })),
+        options: optionsToMap(optionsArr),
         questionStyle: { fontFamily: 'inherit', fontSize: 28, bold: true, italic: false, textColor: '' },
         optionsStyle: { fontFamily: 'inherit', fontSize: 16, bold: false, italic: false },
         chartType: 'bar', maxVotes: 1, active: true,
         tournamentId: currentTournamentId, timestamp: Date.now()
     });
 
-    await update(ref(db, `tournaments/${currentTournamentId}/groups/${data.currentGroupIdx}`), {
-        sessionId, status: 'active'
+    const groupPath = `groups.${data.currentGroupIdx}`;
+    await updateDoc(doc(db, 'tournaments', currentTournamentId), {
+        [`${groupPath}.sessionId`]: sessionRef.id,
+        [`${groupPath}.status`]: 'active',
+        status: 'voting'
     });
-    await update(ref(db, `tournaments/${currentTournamentId}`), { status: 'voting' });
 };
 
 document.getElementById('advance-tournament-btn').onclick = async () => {
@@ -708,54 +786,55 @@ document.getElementById('advance-tournament-btn').onclick = async () => {
     const group = getCurrentGroup(data);
     if (!group?.sessionId) return;
 
-    const sesSnap = await get(ref(db, `sessions/${group.sessionId}`));
-    const sesData = sesSnap.val();
-    if (!sesData) return;
+    const sesSnap = await getDoc(doc(db, 'sessions', group.sessionId));
+    if (!sesSnap.exists()) return;
+    const sesData = sesSnap.data();
+    const opts = optionsToArray(sesData.options);
 
-    const opts = Array.isArray(sesData.options) ? sesData.options : Object.values(sesData.options);
     let maxVotes = -1, winnerInGroupIdx = 0;
-    opts.forEach((opt, i) => {
-        if ((opt.votes || 0) > maxVotes) { maxVotes = opt.votes || 0; winnerInGroupIdx = i; }
-    });
+    opts.forEach((opt, i) => { if ((opt.votes || 0) > maxVotes) { maxVotes = opt.votes || 0; winnerInGroupIdx = i; } });
     const winnerMovieIndex = group.movieIndices[winnerInGroupIdx];
 
-    await update(ref(db, `sessions/${group.sessionId}`), { active: false });
-    await update(ref(db, `tournaments/${currentTournamentId}/groups/${data.currentGroupIdx}`), {
-        winnerMovieIndex, status: 'done'
+    await updateDoc(doc(db, 'sessions', group.sessionId), { active: false });
+    const groupPath = `groups.${data.currentGroupIdx}`;
+    await updateDoc(doc(db, 'tournaments', currentTournamentId), {
+        [`${groupPath}.winnerMovieIndex`]: winnerMovieIndex,
+        [`${groupPath}.status`]: 'done'
     });
 
     // Check if all groups in current round are done
-    const allGroups = Object.values({ ...data.groups, [data.currentGroupIdx]: { ...group, status: 'done', winnerMovieIndex } });
+    const allGroups = Object.values({ ...data.groups, [String(data.currentGroupIdx)]: { ...group, status: 'done', winnerMovieIndex } });
     const roundGroups = allGroups.filter(g => g.round === data.currentRound);
     const roundDone = roundGroups.every(g => g.status === 'done');
 
     if (roundDone) {
         const winners = roundGroups.map(g => g.winnerMovieIndex);
         if (winners.length === 1) {
-            await update(ref(db, `tournaments/${currentTournamentId}`), {
+            await updateDoc(doc(db, 'tournaments', currentTournamentId), {
                 status: 'complete', winnerMovieIndex
             });
         } else {
             const nextGroupIndices = computeGroupIndices(winners.length);
             const nextRound = data.currentRound + 1;
             const nextGroupStart = Object.keys(data.groups).length;
-            const newGroups = {};
+            const newGroupUpdates = {};
             nextGroupIndices.forEach((indices, i) => {
-                newGroups[nextGroupStart + i] = {
+                const key = `groups.${nextGroupStart + i}`;
+                newGroupUpdates[key] = {
                     round: nextRound,
                     movieIndices: indices.map(i2 => winners[i2]),
                     winnerMovieIndex: null, sessionId: null, status: 'waiting'
                 };
             });
-            await update(ref(db, `tournaments/${currentTournamentId}`), {
-                ...Object.fromEntries(Object.entries(newGroups).map(([k, v]) => [`groups/${k}`, v])),
+            await updateDoc(doc(db, 'tournaments', currentTournamentId), {
+                ...newGroupUpdates,
                 currentGroupIdx: nextGroupStart,
                 currentRound: nextRound,
                 status: 'waiting'
             });
         }
     } else {
-        await update(ref(db, `tournaments/${currentTournamentId}`), {
+        await updateDoc(doc(db, 'tournaments', currentTournamentId), {
             currentGroupIdx: data.currentGroupIdx + 1,
             status: 'waiting'
         });
@@ -768,28 +847,27 @@ function renderBracket(data) {
     container.innerHTML = '';
 
     const groups = Object.values(data.groups || {});
+    if (!groups.length) return;
     const maxRound = Math.max(...groups.map(g => g.round));
 
     for (let r = 0; r <= maxRound; r++) {
         const roundGroups = groups.filter(g => g.round === r);
         const roundDiv = document.createElement('div');
         roundDiv.className = 'bracket-round';
-        const totalGroups = groups.filter(g => g.round === 0).length;
-        const label = r === 0 ? 'Runde 1' : r === maxRound && totalGroups > 1 ? 'Finale' : `Runde ${r + 1}`;
+        const totalR0 = groups.filter(g => g.round === 0).length;
+        const label = r === 0 ? 'Runde 1' : r === maxRound && totalR0 > 1 ? 'Finale' : `Runde ${r + 1}`;
         roundDiv.innerHTML = `<h4 class="bracket-round-label">${label}</h4>`;
 
-        roundGroups.forEach((group, groupLocalIdx) => {
-            const globalIdx = groups.findIndex(g => g === group);
-            const isCurrent = data.currentGroupIdx === globalIdx && data.status !== 'complete';
+        roundGroups.forEach((group) => {
+            const globalIdx = Object.keys(data.groups).find(k => data.groups[k] === group);
+            const isCurrent = String(data.currentGroupIdx) === String(globalIdx) && data.status !== 'complete';
             const gDiv = document.createElement('div');
             gDiv.className = `bracket-group${group.status === 'done' ? ' done' : ''}${isCurrent ? ' current' : ''}`;
-
-            const movies = (group.movieIndices || []).map(i => data.movies[i]);
-            gDiv.innerHTML = movies.map((m, i) => {
-                const isWinner = group.winnerMovieIndex === group.movieIndices[i];
+            gDiv.innerHTML = (group.movieIndices || []).map((mi, i) => {
+                const m = data.movies[mi];
+                const isWinner = group.winnerMovieIndex === mi;
                 return `<span class="bracket-movie${isWinner ? ' winner' : ''}">${isWinner ? '🏆 ' : ''}${m?.title || '?'}</span>`;
             }).join('');
-
             roundDiv.appendChild(gDiv);
         });
         container.appendChild(roundDiv);
@@ -814,43 +892,50 @@ document.getElementById('join-btn').onclick = () => {
     if (code) joinSession(code);
 };
 
-function joinSession(code) {
+async function joinSession(code) {
     const errorEl = document.getElementById('join-error');
     if (code.toUpperCase().startsWith('T')) {
         joinTournament(code);
         return;
     }
-    onValue(ref(db, 'sessions'), (snap) => {
-        const sessions = snap.val() || {};
-        const found = Object.entries(sessions).find(([, s]) => String(s.code) === String(code) && s.active);
-        if (found) {
-            const [id, sessionData] = found;
-            currentSessionId = id;
-            myVotedSessions[id] = myVotedSessions[id] || 0;
-            showView('student');
-            renderStudentView(sessionData);
-            onValue(ref(db, `sessions/${id}`), (sn) => renderStudentView(sn.val()));
-        } else {
+
+    try {
+        const q = query(collection(db, 'sessions'), where('code', '==', code), where('active', '==', true));
+        const snap = await getDocs(q);
+        if (snap.empty) {
             if (errorEl) errorEl.innerText = "Fant ingen aktiv sesjon med denne koden.";
+            return;
         }
-    }, { onlyOnce: true });
+        const sessionDoc = snap.docs[0];
+        currentSessionId = sessionDoc.id;
+        myVotedSessions[currentSessionId] = myVotedSessions[currentSessionId] || 0;
+        showView('student');
+        renderStudentView({ id: sessionDoc.id, ...sessionDoc.data() });
+        // Listen for real-time updates
+        onSnapshot(doc(db, 'sessions', sessionDoc.id), (sn) => {
+            if (sn.exists()) renderStudentView({ id: sn.id, ...sn.data() });
+        });
+    } catch (err) {
+        console.error(err);
+        if (errorEl) errorEl.innerText = "Feil: " + err.message;
+    }
 }
 
 function joinTournament(code) {
     const errorEl = document.getElementById('join-error');
-    onValue(ref(db, 'tournaments'), (snap) => {
-        const tournaments = snap.val() || {};
-        const found = Object.entries(tournaments).find(([, t]) => t.code?.toLowerCase() === code.toLowerCase());
-        if (!found) {
+    const q = query(collection(db, 'tournaments'), where('code', '==', code));
+    getDocs(q).then(snap => {
+        if (snap.empty) {
             if (errorEl) errorEl.innerText = "Fant ingen turnering med denne koden.";
             return;
         }
-        const [tId] = found;
+        const tDoc = snap.docs[0];
+        const tId = tDoc.id;
         showView('student');
 
-        onValue(ref(db, `tournaments/${tId}`), (tSn) => {
-            const tData = tSn.val();
-            if (!tData) return;
+        onSnapshot(doc(db, 'tournaments', tId), (tSn) => {
+            if (!tSn.exists()) return;
+            const tData = { id: tSn.id, ...tSn.data() };
 
             const waitMsg = document.getElementById('waiting-message');
             const qEl = document.getElementById('student-question');
@@ -866,42 +951,39 @@ function joinTournament(code) {
             if (tData.status === 'voting') {
                 const group = getCurrentGroup(tData);
                 if (group?.sessionId) {
-                    onValue(ref(db, `sessions/${group.sessionId}`), (sSn) => {
-                        const sesData = sSn.val();
-                        if (sesData?.active) {
+                    onSnapshot(doc(db, 'sessions', group.sessionId), (sSn) => {
+                        if (sSn.exists() && sSn.data().active) {
                             waitMsg.classList.add('hidden');
                             currentSessionId = group.sessionId;
                             myVotedSessions[currentSessionId] = myVotedSessions[currentSessionId] || 0;
-                            renderStudentView(sesData);
+                            renderStudentView({ id: sSn.id, ...sSn.data() });
                         } else {
                             document.getElementById('student-options').innerHTML = '';
-                            qEl.textContent = 'Avstemning pågår...';
+                            qEl.textContent = 'Venter...';
                             waitMsg.classList.remove('hidden');
                         }
                     });
                 }
             } else {
-                const r = tData.currentRound + 1;
-                const total = Object.values(tData.groups || {}).filter(g => g.round === 0).length;
-                qEl.textContent = tData.status === 'waiting' ? `Runde ${r} • Gruppe starter snart` : '';
+                qEl.textContent = `Gruppe ${tData.currentGroupIdx + 1} starter snart`;
                 document.getElementById('student-options').innerHTML = '';
                 waitMsg.classList.remove('hidden');
             }
         });
-    }, { onlyOnce: true });
+    }).catch(err => {
+        if (errorEl) errorEl.innerText = "Feil: " + err.message;
+    });
 }
 
 function renderStudentView(data) {
     if (!data) return;
     const waitMsg = document.getElementById('waiting-message');
-
     if (!data.active) {
         document.getElementById('student-question').textContent = "Sesjonen er avsluttet.";
         document.getElementById('student-options').innerHTML = "";
         waitMsg.classList.add('hidden');
         return;
     }
-
     waitMsg.classList.add('hidden');
 
     const qEl = document.getElementById('student-question');
@@ -922,7 +1004,7 @@ function renderStudentView(data) {
     const os = data.optionsStyle || {};
     const voteCount = myVotedSessions[currentSessionId] || 0;
     const maxVotes = data.maxVotes || 1;
-    const opts = Array.isArray(data.options) ? data.options : Object.values(data.options || {});
+    const opts = optionsToArray(data.options);
 
     opts.forEach((opt, index) => {
         const card = document.createElement('div');
@@ -938,21 +1020,26 @@ function renderStudentView(data) {
     });
 }
 
-function submitVote(optionIndex, data) {
+async function submitVote(optionIndex, data) {
     const voteCount = myVotedSessions[currentSessionId] || 0;
-    const maxVotes = data.maxVotes || 1;
-    if (voteCount >= maxVotes) {
+    if (voteCount >= (data.maxVotes || 1)) {
         document.getElementById('vote-status').innerText = "Du har brukt alle stemmene dine.";
         return;
     }
-    const opts = Array.isArray(data.options) ? data.options : Object.values(data.options || {});
-    const currentVotes = opts[optionIndex]?.votes || 0;
-    update(ref(db, `sessions/${currentSessionId}/options/${optionIndex}`), { votes: currentVotes + 1 });
-    myVotedSessions[currentSessionId] = voteCount + 1;
-    const remaining = maxVotes - (voteCount + 1);
-    document.getElementById('vote-status').innerText = remaining > 0
-        ? `Stemme registrert! ${remaining} igjen.`
-        : "Alle stemmer avgitt! ✓";
+    try {
+        // Atomic increment via Firestore — no race conditions
+        await updateDoc(doc(db, 'sessions', currentSessionId), {
+            [`options.${optionIndex}.votes`]: increment(1)
+        });
+        myVotedSessions[currentSessionId] = voteCount + 1;
+        const remaining = (data.maxVotes || 1) - (voteCount + 1);
+        document.getElementById('vote-status').innerText = remaining > 0
+            ? `Stemme registrert! ${remaining} igjen.`
+            : "Alle stemmer avgitt! ✓";
+    } catch (err) {
+        console.error(err);
+        document.getElementById('vote-status').innerText = "Feil ved stemming — prøv igjen.";
+    }
 }
 
 // ============================
@@ -962,14 +1049,14 @@ function submitVote(optionIndex, data) {
 const PRESET_COLORS = ['#ff6b6b', '#4a90e2', '#2ecc71', '#f1c40f'];
 
 function saveMoviePool() {
-    set(ref(db, 'movie_pool'), moviePool);
+    setDoc(doc(db, 'movie_pool', 'items'), { movies: moviePool })
+        .catch(e => console.warn('Movie pool save failed:', e));
 }
 
 function renderMoviePool() {
     const list = document.getElementById('movie-pool-list');
     const countEl = document.getElementById('pool-count');
     if (!list) return;
-
     list.innerHTML = '';
     if (!moviePool.length) {
         list.innerHTML = '<div class="empty-pool-message">Ingen filmer lagt til ennå. Søk over for å legge til.</div>';
@@ -978,7 +1065,6 @@ function renderMoviePool() {
         if (btn) btn.disabled = true;
         return;
     }
-
     if (countEl) countEl.innerText = moviePool.length;
     moviePool.forEach((movie, idx) => {
         const item = document.createElement('div');
@@ -1019,12 +1105,11 @@ const searchBtn = document.getElementById('tmdb-search-btn');
 const searchResults = document.getElementById('tmdb-search-results');
 
 const performSearch = async () => {
-    const query = searchInput.value.trim();
-    if (!query) return;
-    if (!tmdbApiKey) { alert("Legg inn TMDB API-nøkkel i menyen øverst til høyre."); return; }
+    const queryText = searchInput.value.trim();
+    if (!queryText) return;
     searchBtn.disabled = true;
     try {
-        const res = await fetch(`https://api.themoviedb.org/3/search/movie?api_key=${tmdbApiKey}&query=${encodeURIComponent(query)}&language=no-NO`);
+        const res = await fetch(`https://api.themoviedb.org/3/search/movie?api_key=${tmdbApiKey}&query=${encodeURIComponent(queryText)}&language=no-NO`);
         if (!res.ok) throw new Error("Ugyldig API-nøkkel eller nettverksfeil.");
         const json = await res.json();
         renderSearchResults(json.results || []);
@@ -1052,7 +1137,7 @@ function renderSearchResults(results) {
         const full = movie.poster_path ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` : '';
         const year = movie.release_date?.substring(0, 4) || '';
         item.innerHTML = `
-            ${thumb ? `<img src="${thumb}" alt="">` : '<div style="width:35px;height:50px;background:#ddd;border-radius:4px;"></div>'}
+            ${thumb ? `<img src="${thumb}" alt="">` : '<div style="width:32px;height:46px;background:#ddd;border-radius:5px;"></div>'}
             <div class="search-result-info">
                 <span class="search-result-title">${movie.title}</span>
                 <span class="search-result-year">${year}</span>
