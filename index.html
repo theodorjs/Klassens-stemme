@@ -66,7 +66,7 @@
         </div>
         <div class="card glass join-card">
             <h2>Bli med i en avstemning</h2>
-            <input type="text" id="session-code-input" placeholder="Skriv inn kodeord" maxlength="8">
+            <input type="text" id="session-code-input" placeholder="Skriv inn kodeord" maxlength="8" autocomplete="one-time-code" inputmode="text">
             <button id="join-btn" class="btn-primary">Bli med</button>
             <p id="join-error" class="error-msg"></p>
         </div>
@@ -189,15 +189,28 @@
 
                         <hr>
                         <div class="style-controls">
-                            <label>Graftype:
-                                <select id="chart-type">
-                                    <option value="bar">Søylediagram</option>
-                                    <option value="pie">Sektordiagram</option>
-                                    <option value="doughnut">Smultring</option>
-                                    <option value="polarArea">Polardiagram</option>
-                                </select>
-                            </label>
-                            <label>Maks stemmer:
+                            <div class="chart-type-group">
+                                <span class="chart-type-group-label">Graftype</span>
+                                <div class="chart-type-picker" id="chart-type-picker" role="group" aria-label="Velg graftype">
+                                    <button type="button" class="chart-type-btn active" data-type="bar" title="Søylediagram">
+                                        <span class="material-icons-round">bar_chart</span>
+                                        <span>Søyle</span>
+                                    </button>
+                                    <button type="button" class="chart-type-btn" data-type="pie" title="Sektordiagram">
+                                        <span class="material-icons-round">pie_chart</span>
+                                        <span>Sektor</span>
+                                    </button>
+                                    <button type="button" class="chart-type-btn" data-type="doughnut" title="Smultring">
+                                        <span class="material-icons-round">donut_large</span>
+                                        <span>Smultring</span>
+                                    </button>
+                                    <button type="button" class="chart-type-btn" data-type="polarArea" title="Polardiagram">
+                                        <span class="material-icons-round">radar</span>
+                                        <span>Polar</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <label class="max-votes-label">Maks stemmer:
                                 <input type="number" id="max-votes" value="1" min="1" style="width:70px;">
                             </label>
                         </div>
@@ -241,7 +254,7 @@
                     </div>
                 </div>
                 <div id="results-question-display" class="results-question"></div>
-                <canvas id="results-chart"></canvas>
+                <div class="chart-wrapper"><canvas id="results-chart"></canvas></div>
                 <div id="results-poster-row" class="chart-poster-row"></div>
                 <div class="admin-actions">
                     <button id="next-round-btn" class="btn-secondary hidden">
@@ -312,7 +325,7 @@
                         <span class="material-icons-round">sports_mma</span>
                         <span id="tiebreaker-notice-text"></span>
                     </div>
-                    <canvas id="tournament-chart" style="max-height:280px;margin-top:20px;"></canvas>
+                    <div class="chart-wrapper" style="margin-top:20px;"><canvas id="tournament-chart"></canvas></div>
                     <div id="tournament-poster-row" class="chart-poster-row"></div>
                     <div id="admin-winner-display" class="admin-winner-display hidden"></div>
                 </div>
@@ -368,6 +381,7 @@
         <img id="winner-poster-img" src="" alt="" class="winner-poster hidden">
         <h1 class="winner-title" id="winner-title-text"></h1>
         <p class="winner-tagline" id="winner-tagline-text"></p>
+        <p class="winner-close-hint">Trykk hvor som helst for å lukke</p>
     </div>
 </div>
 

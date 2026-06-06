@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
 import {
-    getFirestore, doc, setDoc, getDoc, addDoc, updateDoc,
+    getFirestore, doc, setDoc, getDoc, addDoc, updateDoc, deleteDoc,
     collection, getDocs, onSnapshot, query, where, increment
 } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
@@ -66,6 +66,26 @@ const views = {
 // ============================
 // HELPERS: options stored as map in Firestore, displayed as array
 // ============================
+
+// ============================
+// COLOR HELPERS
+// ============================
+
+function hexToRgba(hex, alpha) {
+    if (!hex || !hex.startsWith('#') || hex.length < 7) return `rgba(94,231,223,${alpha})`;
+    const r = parseInt(hex.slice(1,3), 16);
+    const g = parseInt(hex.slice(3,5), 16);
+    const b = parseInt(hex.slice(5,7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function isDarkColor(hex) {
+    if (!hex || !hex.startsWith('#') || hex.length < 7) return false;
+    const r = parseInt(hex.slice(1,3), 16);
+    const g = parseInt(hex.slice(3,5), 16);
+    const b = parseInt(hex.slice(5,7), 16);
+    return (0.299*r + 0.587*g + 0.114*b) / 255 < 0.35;
+}
 
 function optionsToMap(arr) {
     const map = {};
@@ -170,6 +190,11 @@ onAuthStateChanged(auth, (user) => {
         // Show saved TMDB key in input
         const input = document.getElementById('tmdb-key-input');
         if (input) input.value = tmdbApiKey !== "ab2d6aeb4bb7d48768a7b5a95873613c" ? tmdbApiKey : (LS.get('tmdb_api_key') || "");
+        // Ensure creation form starts with 2 default options
+        if (document.getElementById('options-container').children.length === 0) {
+            createOptionRow();
+            createOptionRow();
+        }
     } else {
         showView('landing');
         if (pendingCode) { joinSession(pendingCode); pendingCode = null; }
@@ -313,6 +338,7 @@ tmdbKeyInput.addEventListener('blur', (e) => {
 function showView(name) {
     Object.values(views).forEach(el => el.classList.add('hidden'));
     views[name].classList.remove('hidden');
+    document.body.setAttribute('data-view', name);
     // Hide winner overlay when leaving student view
     if (name !== 'student') {
         const wo = document.getElementById('winner-overlay');
@@ -360,7 +386,13 @@ function applyTextStyle(el, style) {
     if (style.fontSize) el.style.fontSize = style.fontSize + 'px';
     el.style.fontWeight = style.bold ? 'bold' : '';
     el.style.fontStyle = style.italic ? 'italic' : '';
-    if (style.textColor) el.style.color = style.textColor;
+    if (style.textColor) {
+        // In dark mode, don't apply colours that are too dark to be readable
+        const inDarkMode = document.documentElement.getAttribute('data-theme') !== 'light';
+        if (!inDarkMode || !isDarkColor(style.textColor)) {
+            el.style.color = style.textColor;
+        }
+    }
 }
 
 // Question image
@@ -385,8 +417,27 @@ document.getElementById('question-img-input').addEventListener('change', (e) => 
 // ADMIN: CREATION
 // ============================
 
-function createOptionRow(text = "", color = "#4a90e2", imgUrl = "", textColor = "#ffffff") {
+const AUTO_OPT_COLORS = ['#5ee7df','#b490f5','#f87171','#ffd27f','#a8f08a','#f7a8c4'];
+
+// Chart type visual picker
+function getSelectedChartType() {
+    const active = document.querySelector('.chart-type-btn.active');
+    return active ? active.dataset.type : 'bar';
+}
+
+document.querySelectorAll('.chart-type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.chart-type-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    });
+});
+
+function createOptionRow(text = "", color = null, imgUrl = "", textColor = "#ffffff") {
     const container = document.getElementById('options-container');
+    if (!color) {
+        const count = container.querySelectorAll('.option-row-wrapper').length;
+        color = AUTO_OPT_COLORS[count % AUTO_OPT_COLORS.length];
+    }
     const div = document.createElement('div');
     div.className = 'option-row-wrapper';
     if (imgUrl) div.dataset.tmdbImgUrl = imgUrl;
@@ -449,9 +500,20 @@ document.getElementById('launch-poll-btn').onclick = async () => {
 
         let questionImgUrl = "";
         if (questionImgFile) {
-            const imgRef = sRef(storage, `questions/${Date.now()}_${questionImgFile.name}`);
-            await uploadBytes(imgRef, questionImgFile);
-            questionImgUrl = await getDownloadURL(imgRef);
+            try {
+                const imgRef = sRef(storage, `questions/${Date.now()}_${questionImgFile.name}`);
+                await uploadBytes(imgRef, questionImgFile);
+                questionImgUrl = await getDownloadURL(imgRef);
+            } catch (uploadErr) {
+                console.warn("Bilde-opplasting til Storage feilet, bruker base64:", uploadErr);
+                // Fall back to base64 data URL so the poll can still launch
+                questionImgUrl = await new Promise(resolve => {
+                    const reader = new FileReader();
+                    reader.onload  = ev => resolve(ev.target.result);
+                    reader.onerror = ()  => resolve("");
+                    reader.readAsDataURL(questionImgFile);
+                });
+            }
         }
 
         const optionsArr = [];
@@ -477,7 +539,7 @@ document.getElementById('launch-poll-btn').onclick = async () => {
             questionImgUrl,
             optionsStyle,
             options: optionsToMap(optionsArr),
-            chartType: document.getElementById('chart-type').value,
+            chartType: getSelectedChartType(),
             maxVotes: parseInt(document.getElementById('max-votes').value) || 1,
             active: true,
             timestamp: Date.now()
@@ -503,11 +565,12 @@ function showResultsView(code) {
         text: `${location.origin}${location.pathname}?code=${code}`,
         width: 100, height: 100
     });
-    document.getElementById('next-round-btn').classList.remove('hidden');
+    // Regular polls are always single-round — hide "next round" button
+    document.getElementById('next-round-btn').classList.add('hidden');
     document.getElementById('stop-poll-btn').classList.remove('hidden');
 }
 
-document.getElementById('create-new-btn').onclick = () => {
+function initCreationForm() {
     currentSessionId = null;
     document.getElementById('question-text').value = "";
     document.getElementById('options-container').innerHTML = "";
@@ -517,8 +580,19 @@ document.getElementById('create-new-btn').onclick = () => {
     ['q-font-family', 'opt-font-family'].forEach(id => document.getElementById(id).value = 'inherit');
     document.getElementById('q-font-size').value = '32';
     document.getElementById('opt-font-size').value = '18';
-    document.getElementById('q-text-color').value = '#333333';
+    document.getElementById('q-text-color').value = '#ffffff';
     ['q-bold', 'q-italic', 'opt-bold', 'opt-italic'].forEach(id => document.getElementById(id).classList.remove('active'));
+    // Reset chart type picker to bar
+    document.querySelectorAll('.chart-type-btn').forEach(b => b.classList.remove('active'));
+    const barBtn = document.querySelector('.chart-type-btn[data-type="bar"]');
+    if (barBtn) barBtn.classList.add('active');
+    // Pre-fill 2 empty options with auto-colours
+    createOptionRow();
+    createOptionRow();
+}
+
+document.getElementById('create-new-btn').onclick = () => {
+    initCreationForm();
     document.getElementById('creation-view').classList.remove('hidden');
     document.getElementById('live-results-view').classList.add('hidden');
     document.getElementById('tournament-view').classList.add('hidden');
@@ -526,6 +600,19 @@ document.getElementById('create-new-btn').onclick = () => {
 
 document.getElementById('stop-poll-btn').onclick = async () => {
     if (currentSessionId) {
+        // Fetch live data to find winner before closing
+        try {
+            const sesSnap = await getDoc(doc(db, 'sessions', currentSessionId));
+            if (sesSnap.exists()) {
+                const data = sesSnap.data();
+                const opts = optionsToArray(data.options);
+                const maxVotes = Math.max(...opts.map(o => o.votes || 0), 0);
+                if (maxVotes > 0) {
+                    const winners = opts.filter(o => (o.votes || 0) === maxVotes);
+                    if (winners.length === 1) showPollWinner(winners[0]);
+                }
+            }
+        } catch (e) { console.warn('Could not determine winner:', e); }
         await updateDoc(doc(db, 'sessions', currentSessionId), { active: false }).catch(console.error);
     }
     document.getElementById('creation-view').classList.remove('hidden');
@@ -592,8 +679,8 @@ function renderChart(data, canvasId) {
             datasets: [{
                 label: '# Stemmer',
                 data: opts.map(o => o.votes || 0),
-                backgroundColor: opts.map(o => o.color || 'rgba(94,231,223,0.6)'),
-                borderColor:     opts.map(o => o.color || 'rgba(94,231,223,0.8)'),
+                backgroundColor: opts.map(o => hexToRgba(o.color || '#5ee7df', 0.62)),
+                borderColor:     opts.map(o => hexToRgba(o.color || '#5ee7df', 0.90)),
                 borderWidth: 2,
                 borderRadius: isBar ? 8 : 0,
                 hoverBorderWidth: 3
@@ -601,6 +688,7 @@ function renderChart(data, canvasId) {
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
             animation: { duration: 500, easing: 'easeOutQuart' },
             plugins: {
                 legend: {
@@ -675,11 +763,28 @@ function loadHistory() {
             const li = document.createElement('li');
             li.className = 'history-item';
             li.innerHTML = `
-                <span class="history-question">${session.question || 'Uten tittel'}</span>
-                <span class="history-status ${session.active ? 'status-active' : 'status-ended'}">
-                    ${session.active ? 'Aktiv' : 'Avsluttet'}
-                </span>
+                <div class="history-item-body">
+                    <span class="history-question">${session.question || 'Uten tittel'}</span>
+                    <span class="history-status ${session.active ? 'status-active' : 'status-ended'}">
+                        ${session.active ? 'Aktiv' : 'Avsluttet'}
+                    </span>
+                </div>
             `;
+            // Delete button
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'history-delete-btn';
+            deleteBtn.innerHTML = '<span class="material-icons-round">delete_outline</span>';
+            deleteBtn.title = 'Slett fra historikk';
+            deleteBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (confirm(`Slett "${session.question || 'Uten tittel'}" fra historikken?`)) {
+                    try {
+                        await deleteDoc(doc(db, 'sessions', session.id));
+                    } catch (err) { alert('Kunne ikke slette: ' + err.message); }
+                }
+            });
+            li.appendChild(deleteBtn);
+
             li.onclick = () => {
                 currentSessionId = session.id;
                 document.getElementById('creation-view').classList.add('hidden');
@@ -691,7 +796,8 @@ function loadHistory() {
                     text: `${location.origin}${location.pathname}?code=${session.code}`,
                     width: 100, height: 100
                 });
-                document.getElementById('next-round-btn').classList.toggle('hidden', !session.active);
+                // Regular polls have no "next round" concept
+                document.getElementById('next-round-btn').classList.add('hidden');
                 document.getElementById('stop-poll-btn').classList.toggle('hidden', !session.active);
                 renderResultsHeader(session);
                 renderChart(session, 'results-chart');
@@ -816,7 +922,7 @@ function renderGroupPreview() {
         if (cb && cb.checked) selectedMovies.push(moviePool[parseInt(cb.dataset.poolIdx)]);
     });
 
-    if (selectedMovies.length < 4) {
+    if (selectedMovies.length < tournamentGroupSize) {
         wrap.classList.add('hidden');
         return;
     }
@@ -886,7 +992,7 @@ document.getElementById('start-tournament-btn').onclick = async () => {
         const cb = item.querySelector('.t-select-cb');
         if (cb && cb.checked) selected.push(moviePool[parseInt(cb.dataset.poolIdx)]);
     });
-    if (selected.length < 4) { alert("Velg minst 4 filmer."); return; }
+    if (selected.length < tournamentGroupSize) { alert(`Velg minst ${tournamentGroupSize} filmer.`); return; }
 
     const shuffled = selected; // use teacher's ordering — no shuffle
     const groupIndices = computeGroupIndices(shuffled.length);
@@ -994,6 +1100,34 @@ function showWinnerCelebration(movie) {
     overlay.classList.remove('hidden');
     launchConfetti();
 }
+
+// Winner for regular polls (options have .text and optionally .imgUrl)
+function showPollWinner(opt) {
+    if (!opt || winnerShown) return;
+    winnerShown = true;
+    const overlay   = document.getElementById('winner-overlay');
+    const posterImg = document.getElementById('winner-poster-img');
+    const titleEl   = document.getElementById('winner-title-text');
+    const taglineEl = document.getElementById('winner-tagline-text');
+    if (!overlay) return;
+    if (opt.imgUrl) {
+        posterImg.src = opt.imgUrl;
+        posterImg.classList.remove('hidden');
+    } else {
+        posterImg.classList.add('hidden');
+    }
+    titleEl.textContent   = opt.text;
+    taglineEl.textContent = `${opt.text} vant!`;
+    overlay.classList.remove('hidden');
+    launchConfetti();
+}
+
+// Click anywhere on winner overlay to close it
+document.getElementById('winner-overlay').addEventListener('click', () => {
+    const overlay = document.getElementById('winner-overlay');
+    overlay.classList.add('hidden');
+    winnerShown = false;
+});
 
 function launchConfetti() {
     const container = document.getElementById('confetti-container');
