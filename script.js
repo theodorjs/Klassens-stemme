@@ -1438,7 +1438,8 @@ async function joinSession(code) {
         }
         const sessionDoc = snap.docs[0];
         currentSessionId = sessionDoc.id;
-        myVotedSessions[currentSessionId] = myVotedSessions[currentSessionId] || 0;
+        // Restore persisted vote count so page refresh can't be used to re-vote
+        myVotedSessions[currentSessionId] = LS.get('voted_' + currentSessionId) || 0;
         showView('student');
         renderStudentView({ id: sessionDoc.id, ...sessionDoc.data() });
         // Track listener so it can be cleaned up when leaving student view
@@ -1500,7 +1501,8 @@ function joinTournament(code) {
                             if (sSn.exists() && sSn.data().active) {
                                 waitMsg.classList.add('hidden');
                                 currentSessionId = group.sessionId;
-                                myVotedSessions[currentSessionId] = myVotedSessions[currentSessionId] || 0;
+                                // Restore persisted vote count — blocks refresh-to-revote
+                                myVotedSessions[currentSessionId] = LS.get('voted_' + currentSessionId) || 0;
                                 renderStudentView({ id: sSn.id, ...sSn.data() });
                             } else {
                                 document.getElementById('student-options').innerHTML = '';
@@ -1575,18 +1577,22 @@ async function submitVote(optionIndex, data) {
     }
     // Optimistic lock: increment BEFORE the async call so rapid double-clicks
     // are blocked immediately rather than racing to pass the check above.
-    myVotedSessions[currentSessionId] = voteCount + 1;
+    const newCount = voteCount + 1;
+    myVotedSessions[currentSessionId] = newCount;
+    // Persist to localStorage — survives page refresh, preventing the refresh-to-revote exploit
+    LS.set('voted_' + currentSessionId, newCount);
     try {
         await updateDoc(doc(db, 'sessions', currentSessionId), {
             [`options.${optionIndex}.votes`]: increment(1)
         });
-        const remaining = maxVotes - (voteCount + 1);
+        const remaining = maxVotes - newCount;
         document.getElementById('vote-status').innerText = remaining > 0
             ? `Stemme registrert! ${remaining} igjen.`
             : "Alle stemmer avgitt! ✓";
     } catch (err) {
-        // Revert on failure so the student can try again
+        // Revert both in-memory and localStorage on failure so the student can try again
         myVotedSessions[currentSessionId] = voteCount;
+        LS.set('voted_' + currentSessionId, voteCount);
         console.error(err);
         document.getElementById('vote-status').innerText = "Feil ved stemming — prøv igjen.";
     }
