@@ -55,6 +55,10 @@ let unsubscribeMoviePool = null;
 let unsubscribeTmdbKey = null;
 let unsubscribeHistory = null;
 let tournamentUnsubscribe = null;
+let adminChartUnsubscribe = null;          // admin: session chart listener inside tournament
+let studentTournamentUnsubscribe = null;   // student: outer tournament doc listener
+let studentSessionUnsubscribe = null;      // student: inner session doc listener
+let studentListeningSessionId = null;      // avoids re-subscribing to the same session
 let questionImgFile = null;
 
 const views = {
@@ -339,11 +343,14 @@ function showView(name) {
     Object.values(views).forEach(el => el.classList.add('hidden'));
     views[name].classList.remove('hidden');
     document.body.setAttribute('data-view', name);
-    // Hide winner overlay when leaving student view
+    // Clean up all student-side listeners and state when leaving student view
     if (name !== 'student') {
         const wo = document.getElementById('winner-overlay');
         if (wo) wo.classList.add('hidden');
         winnerShown = false;
+        if (studentTournamentUnsubscribe) { studentTournamentUnsubscribe(); studentTournamentUnsubscribe = null; }
+        if (studentSessionUnsubscribe)    { studentSessionUnsubscribe();    studentSessionUnsubscribe = null; }
+        studentListeningSessionId = null;
     }
 }
 
@@ -956,6 +963,13 @@ function updateTournamentStartBtn() {
         : `<span class="material-icons-round">play_arrow</span> Velg minst ${minNeeded} filmer (${n} valgt)`;
 }
 
+// "Legg til alle"-knapp i turneringsoppsett
+document.getElementById('select-all-tournament-btn').addEventListener('click', () => {
+    document.querySelectorAll('.t-select-cb').forEach(cb => { cb.checked = true; });
+    updateTournamentStartBtn();
+    renderGroupPreview();
+});
+
 // Group size selector — pill buttons
 document.querySelectorAll('.group-size-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1176,9 +1190,15 @@ function subscribeTournament(tId) {
             advanceBtn.classList.remove('hidden');
             const group = getCurrentGroup(data);
             if (group?.sessionId) {
-                onSnapshot(doc(db, 'sessions', group.sessionId), (sSn) => {
-                    if (sSn.exists()) renderChart({ ...sSn.data() }, 'tournament-chart');
-                });
+                // Guard: only (re-)subscribe if this is a different session
+                if (group.sessionId !== (adminChartUnsubscribe?._sessionId)) {
+                    if (adminChartUnsubscribe) { adminChartUnsubscribe(); }
+                    const unsub = onSnapshot(doc(db, 'sessions', group.sessionId), (sSn) => {
+                        if (sSn.exists()) renderChart({ ...sSn.data() }, 'tournament-chart');
+                    });
+                    unsub._sessionId = group.sessionId; // tag so we can compare later
+                    adminChartUnsubscribe = unsub;
+                }
             }
         } else {
             launchBtn.classList.remove('hidden');
@@ -1234,10 +1254,14 @@ document.getElementById('advance-tournament-btn').onclick = async () => {
     const sesData = sesSnap.data();
     const opts = optionsToArray(sesData.options);
 
-    // Find max votes and check for a tie
+    // Find max votes and check for a tie — single pass avoids stale-read race
     let maxVotes = -1;
-    opts.forEach(opt => { if ((opt.votes || 0) > maxVotes) maxVotes = opt.votes || 0; });
-    const tiedIndices = opts.map((opt, i) => ((opt.votes || 0) === maxVotes ? i : -1)).filter(i => i >= 0);
+    const tiedIndices = [];
+    opts.forEach((opt, i) => {
+        const v = opt.votes || 0;
+        if (v > maxVotes)  { maxVotes = v; tiedIndices.length = 0; tiedIndices.push(i); }
+        else if (v === maxVotes) { tiedIndices.push(i); }
+    });
 
     if (tiedIndices.length > 1) {
         // TIE — start a tiebreaker session with only the tied movies
@@ -1417,8 +1441,10 @@ async function joinSession(code) {
         myVotedSessions[currentSessionId] = myVotedSessions[currentSessionId] || 0;
         showView('student');
         renderStudentView({ id: sessionDoc.id, ...sessionDoc.data() });
-        // Listen for real-time updates
-        onSnapshot(doc(db, 'sessions', sessionDoc.id), (sn) => {
+        // Track listener so it can be cleaned up when leaving student view
+        if (studentSessionUnsubscribe) studentSessionUnsubscribe();
+        studentListeningSessionId = sessionDoc.id;
+        studentSessionUnsubscribe = onSnapshot(doc(db, 'sessions', sessionDoc.id), (sn) => {
             if (sn.exists()) renderStudentView({ id: sn.id, ...sn.data() });
         });
     } catch (err) {
@@ -1439,7 +1465,9 @@ function joinTournament(code) {
         const tId = tDoc.id;
         showView('student');
 
-        onSnapshot(doc(db, 'tournaments', tId), (tSn) => {
+        // Track the tournament listener so it can be cleaned up on view change
+        if (studentTournamentUnsubscribe) studentTournamentUnsubscribe();
+        studentTournamentUnsubscribe = onSnapshot(doc(db, 'tournaments', tId), (tSn) => {
             if (!tSn.exists()) return;
             const tData = { id: tSn.id, ...tSn.data() };
 
@@ -1455,20 +1483,32 @@ function joinTournament(code) {
             }
 
             if (tData.status === 'voting') {
+                winnerShown = false; // reset so celebration fires correctly for each final round
                 const group = getCurrentGroup(tData);
                 if (group?.sessionId) {
-                    onSnapshot(doc(db, 'sessions', group.sessionId), (sSn) => {
-                        if (sSn.exists() && sSn.data().active) {
-                            waitMsg.classList.add('hidden');
-                            currentSessionId = group.sessionId;
-                            myVotedSessions[currentSessionId] = myVotedSessions[currentSessionId] || 0;
-                            renderStudentView({ id: sSn.id, ...sSn.data() });
-                        } else {
-                            document.getElementById('student-options').innerHTML = '';
-                            qEl.textContent = 'Venter...';
-                            waitMsg.classList.remove('hidden');
+                    // Only create a new listener if this is a different session than before.
+                    // Without this guard, every tournament doc change (many per round) would
+                    // stack up a new session listener — causing duplicate renders and wasted
+                    // connections that degrade performance on the student's device.
+                    if (group.sessionId !== studentListeningSessionId) {
+                        if (studentSessionUnsubscribe) {
+                            studentSessionUnsubscribe();
+                            studentSessionUnsubscribe = null;
                         }
-                    });
+                        studentListeningSessionId = group.sessionId;
+                        studentSessionUnsubscribe = onSnapshot(doc(db, 'sessions', group.sessionId), (sSn) => {
+                            if (sSn.exists() && sSn.data().active) {
+                                waitMsg.classList.add('hidden');
+                                currentSessionId = group.sessionId;
+                                myVotedSessions[currentSessionId] = myVotedSessions[currentSessionId] || 0;
+                                renderStudentView({ id: sSn.id, ...sSn.data() });
+                            } else {
+                                document.getElementById('student-options').innerHTML = '';
+                                qEl.textContent = 'Venter...';
+                                waitMsg.classList.remove('hidden');
+                            }
+                        });
+                    }
                 }
             } else {
                 qEl.textContent = `Gruppe ${tData.currentGroupIdx + 1} starter snart`;
@@ -1528,21 +1568,25 @@ function renderStudentView(data) {
 
 async function submitVote(optionIndex, data) {
     const voteCount = myVotedSessions[currentSessionId] || 0;
-    if (voteCount >= (data.maxVotes || 1)) {
+    const maxVotes  = data.maxVotes || 1;
+    if (voteCount >= maxVotes) {
         document.getElementById('vote-status').innerText = "Du har brukt alle stemmene dine.";
         return;
     }
+    // Optimistic lock: increment BEFORE the async call so rapid double-clicks
+    // are blocked immediately rather than racing to pass the check above.
+    myVotedSessions[currentSessionId] = voteCount + 1;
     try {
-        // Atomic increment via Firestore — no race conditions
         await updateDoc(doc(db, 'sessions', currentSessionId), {
             [`options.${optionIndex}.votes`]: increment(1)
         });
-        myVotedSessions[currentSessionId] = voteCount + 1;
-        const remaining = (data.maxVotes || 1) - (voteCount + 1);
+        const remaining = maxVotes - (voteCount + 1);
         document.getElementById('vote-status').innerText = remaining > 0
             ? `Stemme registrert! ${remaining} igjen.`
             : "Alle stemmer avgitt! ✓";
     } catch (err) {
+        // Revert on failure so the student can try again
+        myVotedSessions[currentSessionId] = voteCount;
         console.error(err);
         document.getElementById('vote-status').innerText = "Feil ved stemming — prøv igjen.";
     }
